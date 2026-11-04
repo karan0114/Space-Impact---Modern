@@ -1,130 +1,177 @@
-# Space Impact — Retro Arcade Shmup
+# Implementation Plan: Seamless Map Looping, Android Responsive UI & Cloud Profile Sync (Google / Facebook Auth + Firestore)
 
-A recreation of the iconic Nokia side-scrolling space shooter **Space Impact**, engineered with modern widescreen pixel-art visuals, neon arcade glow, authentic monophonic Web Audio synthesizer effects, a 5-stage campaign with signature bosses, and an Endless Survival mode.
-
----
-
-### User Review & Critical Decisions
-
-> [!IMPORTANT]
-> The following directions were confirmed during initial planning:
-> - **Visual Style**: Clean modern pixel-art widescreen with neon arcade glow, parallax multi-layered starfields, glowing projectile tracers, and optional retro CRT scanline overlay.
-> - **Audio Engine**: Authentic Nokia monophonic chiptune synth and procedural 8-bit sound effects synthesized via the browser's native Web Audio API (square/triangle wave oscillators and noise bursts; no external audio files required).
-> - **Game Modes**: Classic 5-Stage Campaign (distinct environments, enemy patterns, mini-bosses, and 5 epic stage bosses) plus an Endless Survival score-attack mode with escalating difficulty waves.
-> - **Controls & Touch Support**: Dual-mode input with responsive desktop keyboard controls (`WASD` / Arrow keys, `Space` / `J` to shoot, `K` / `X` for secondary weapon, `Esc` / `P` to pause) plus responsive on-screen virtual d-pad and firing buttons for mobile and touch devices.
+## 1. Executive Summary
+This revised plan encompasses three coordinated upgrades to the space shooter:
+1. **Seamless Parallax Map Loop Blending**: Fixing the visible hard seams and "series of cards" look during horizontal scrolling by implementing a continuous mirror-tiled (ping-pong) parallax render pipeline with a soft alpha edge crossfade buffer.
+2. **Android Button Overlap Fix**: Re-architecting `TitleScreen.tsx` into an adaptive, scrollable layout with dynamic scaling (`100dvh` and safe-area insets) and a streamlined button grid to prevent overlapping on any smartphone browser.
+3. **Cloud Save & Social Authentication**: Integrating Firebase Authentication (Google and Facebook providers) with persistent Firestore cloud synchronization for player high scores, gold coins, ship upgrades, and daily combat missions.
 
 ---
 
-### 1. Overview & Core Concept
+## 2. User Review & Critical Decisions
 
-- **What It Does**: Puts players in control of the classic space fighter craft traveling horizontally through alien sectors. Players blast through swarms of insectoid scouts, biological squid craft, mecha-drones, and dreadnoughts, collecting weapon power-ups and launching screen-clearing secondary bombs against colossal multi-phase stage bosses.
-- **Target Audience / Persona**: Retro gaming fans, Nokia 3310 / 3330 nostalgics, and arcade shoot-'em-up enthusiasts looking for fast, responsive, and rewarding space combat.
-- **Key Value**: Delivers the tactile nostalgia of Space Impact with arcade game feel: 60fps clamped game loop, decaying screen shake, hit-stop impact freezes, fluid particle explosions, and local high-score tracking.
+> [!IMPORTANT] All core user requirements and recent adjustments are integrated below:
 
----
-
-### 2. User Experience & Visual Design
-
-#### Key User Flows
-1. **Title Screen**:
-   - Atmospheric live background with drifting space stars and automated combat demo.
-   - Distinctive neon pixel title lockup over negative space.
-   - Primary action buttons: `"Start Campaign"`, `"Endless Mode"`, `"How to Play / Controls"`, and `"High Scores"`.
-   - Audio and CRT scanline toggles.
-2. **Stage Progression (Campaign)**:
-   - Brief pre-stage sector dispatch banner (`Sector 1: Outer Orbit`, `Sector 2: Mecha Fortress`, etc.).
-   - Wave-based scrolling combat with pacing (minor swarms $\to$ heavy cruisers $\to$ boss warning alarm $\to$ boss battle).
-   - Victory tally screen with accuracy, score bonus, and seamless continuation to the next sector.
-3. **Gameplay HUD**:
-   - World-matched, low-occlusion perimeter HUD keeping $\ge 85\%$ of the playfield clear:
-     - Player hull integrity bar with `tabular-nums` numeric value (`HP: 100/100`).
-     - Lives counter (iconic 3 ship glyphs).
-     - Score and high score display (`font-mono tabular-nums`).
-     - Weapon status indicator (Single $\to$ Dual $\to$ Triple Spread $\to$ Plasma Beam) and secondary ordnance ammo (Homing Missiles / Screen Nuke).
-     - Boss health bar displayed prominently at the top when encountering sector bosses.
-4. **Game Over & Pause Modals**:
-   - Quick-settling overlay with final score, stage reached, enemies destroyed, accuracy percentage, and immediate one-click `"Play Again"` restart without page refresh.
-
-#### Visual Identity & Theme
-- **Color Palette (60-30-10 Rule)**:
-  - **60% Deep Void Canvas**: Dark cosmic navy/slate (`#050811`, `#0A0E1A`).
-  - **30% Structural Elements & Stars**: Deep steel HUD panels, muted nebula dust clouds, crisp star layers (`#1E293B`, `#334155`, `#94A3B8`).
-  - **10% Neon Accent Highlights**:
-    - Player Ship & Blaster: Neon Cyan (`#06B6D4`) & Electric Emerald (`#10B981`).
-    - Enemy Lasers & Hazards: Hot Magenta (`#F43F5E`) & Amber Red (`#EF4444`).
-    - Power-ups & Upgrades: Radiant Gold (`#F59E0B`).
-    - Boss Energy Shields: Plasma Violet (`#8B5CF6`).
-- **Typography & Display**:
-  - Arcade pixel-proportional headings paired with crisp monospace numbers (`font-mono tabular-nums`).
-  - Clean unboxed metadata with subtle typographic separators (`·`).
+- **Confirmed Decision 1 (Map Looping Seam Fix)**: Replace naive direct side-by-side tiling (`-scrollX` and `w - scrollX`) with an alternating mirrored tiling system (`Normal -> Horizontal Flip -> Normal`) augmented by a 100px linear alpha feathering blend at junctions, eliminating hard vertical seams completely.
+- **Confirmed Decision 2 (Android Responsive UI)**: Responsive scrollable grid with dynamic scaling for compact screens, eliminating vertical crowding on smaller Android viewports.
+- **Confirmed Decision 3 (Auth & Database)**: Firebase Auth with Google and Facebook sign-in providers, backed by Firestore cloud synchronization.
+- **Confirmed Decision 4 (Data Sync Scope)**: Complete cloud profile synchronization covering high scores, gold coin balances, spaceship hangar upgrades, and 24-hour daily mission progress with local guest fallback.
 
 ---
 
-### 3. Key Product Decisions & Trade-Offs
+## 3. Overview & Core Concept
 
-- **Canvas 2D Rendering with Sub-Pixel Physics**:
-  - *Chosen Approach*: Pure HTML5 Canvas 2D with vector/pixel procedural sprite routines and double buffering.
-  - *Why*: Guaranteed 60fps performance across all devices, zero external texture download latency, and razor-sharp resolution-independent scaling.
-  - *Alternatives Considered*: Three.js (unnecessary overhead for a 2D side-scrolling pixel shmup) or DOM div elements (unacceptable frame drops with 100+ projectiles and particles).
-- **Procedural Web Audio API Chiptune Synth**:
-  - *Chosen Approach*: Built-in browser audio synthesis generating square-wave melodic bleeps, frequency-swept laser zaps, and white-noise explosion buffers.
-  - *Why*: Emulates the authentic Nokia 3310 piezoelectric buzzer sound while remaining 100% self-contained with instant zero-network audio playback.
-- **5 Campaign Stages with Custom Bosses**:
-  - *Stage 1*: Alien Scout Vanguard $\to$ Biological Mothership (Squid Titan).
-  - *Stage 2*: Mecha-Drone Fleet $\to$ Armored Battle Fortress with rotating turrets.
-  - *Stage 3*: Asteroid Belt & Minefield $\to$ Cyber Dreadnought with missile salvos.
-  - *Stage 4*: Bioluminescent Swarmers $\to$ Alien Skull Leviathan with sweeping laser beams.
-  - *Stage 5*: Alien Command Fleet $\to$ The Overmind Core (multi-phase showdown).
-- **Persistent Local Records**:
-  - High scores, best sector, and audio settings stored persistently in browser `localStorage`.
+- **What It Does**: 
+  - Players experience a visually stunning, truly infinite space background where celestial nebulae, asteroid belts, and black hole gravitational rings scroll smoothly without harsh seams or repeating image cuts.
+  - On any smartphone (Android Chrome, Brave, Samsung Internet, iOS Safari), the homescreen navigation dynamically fits the viewport height without buttons overlapping or falling off-screen.
+  - Players can link their Google or Facebook account with one click to safeguard their coins, hangar upgrades, and daily mission rewards across sessions and devices.
+- **Target Audience**: Mobile and desktop arcade gamers who value fluid aesthetics and cross-device progression.
+- **Key Value**: Professional visual presentation, frictionless mobile controls, and rock-solid cloud data persistence.
 
 ---
 
-### 4. Technical Architecture & Data Strategy
+## 4. User Experience & Visual Design
 
+### A. Seamless Map Blending & Infinite Looping
+- **The Seam Issue**: Placing standard non-tileable rectangular images end-to-end creates an abrupt vertical color/density discontinuity every cycle.
+- **The Seamless Solution**:
+  1. **Ping-Pong Mirrored Tiling**: Tile 0 renders in standard orientation; Tile 1 renders horizontally mirrored (`scaleX(-1)`); Tile 2 renders standard. Because the right edge of Tile 0 is identical to the left edge of mirrored Tile 1, the physical seam is mathematically 0% noticeable.
+  2. **Soft Seam Edge Crossfade**: A 96px soft linear gradient mask across the seam coordinates diffuses local star clusters and nebula edges, ensuring a photographic gradient transition.
+  3. **Atmospheric Color Grading**: Map-specific ambient tinting (`TOXIC_BELT` emerald glow, `SINGULARITY_ABYSS` ultraviolet distortion, `NEBULA_STATION` cyan station flare) harmonizes contrast.
+
+### B. Android Viewport Adaptive Layout
+- **Dynamic Viewport (`100dvh`)**: Compensates for mobile browser address bars and bottom navigation drawers.
+- **Scrollable Adaptive Grid**: Keeps the header title and user profile pinned while housing the map carousel and action buttons inside an auto-scaling container (`max-h-[calc(100dvh-130px)]`).
+- **Streamlined Button Grid**:
+  - Primary Launch: High-visibility Campaign & Endless modes side-by-side.
+  - Map Switcher: Sleek swipeable banner with integrated quick-cycle button and swipe gesture hints.
+  - Secondary Actions: 2x2 grid for Hangar, Daily Missions, Touch Controls, and Hall of Fame.
+
+### ASCII Layout Diagram (Mobile Android Viewport)
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                           App.tsx                               │
-│       (Game State Machine: MENU | PLAYING | PAUSED | OVER)       │
-└──────────────┬──────────────────────────────────┬───────────────┘
-               │                                  │
-       ┌───────▼────────┐                ┌────────▼────────┐
-       │   HUD / Touch  │                │  SoundEngine.ts │
-       │  Controls Overlay               │ (Web Audio API) │
-       └───────┬────────┘                └────────▲────────┘
-               │                                  │
-┌──────────────▼──────────────────────────────────┴───────────────┐
-│                         GameEngine.ts                           │
-│  ┌───────────────────────┐             ┌─────────────────────┐  │
-│  │    Game Loop (60fps)  │             │   InputManager.ts   │  │
-│  │   Math.min(dt, 0.05)  │             │ (Keyboard + Touch)  │  │
-│  └───────────┬───────────┘             └──────────┬──────────┘  │
-│              ▼                                    │             │
-│  ┌────────────────────────────────────────────────▼──────────┐  │
-│  │                    EntityManager                          │  │
-│  │  - PlayerShip (HP, power-up tier, weapon cooldown)        │  │
-│  │  - Projectiles (Player blasters, missiles, lasers, enemy) │  │
-│  │  - Enemies & Bosses (Movement paths, firing AI, phases)   │  │
-│  │  - PowerUps (Laser, Spread, Shield, Bomb, 1-Up)           │  │
-│  │  - Particles & Floating Text (Spark, explosion, shake)    │  │
-│  └───────────────────────────┬───────────────────────────────┘  │
-│                              │                                  │
-│                              ▼                                  │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │                   CanvasRenderer.ts                       │  │
-│  │  - Starfield Parallax, Space Debris, Sprite Rasterizer    │  │
-│  │  - Hit-Stop Freeze, Screen Shake, Glow Filters            │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------+
+| [⚡ VORTEX OVERDRIVE]        [👤 Sign In / Player Profile]  |
+| <Top Bar: Safe area aware, flex space-between, z-20>        |
++-------------------------------------------------------------+
+|                                                             |
+|   +-----------------------------------------------------+   |
+|   | 🌌 MAP: SINGULARITY ABYSS  (Hard: 1.5x Multiplier)  |   |
+|   | [ < Prev ]   [ Swipe or Tap to Switch ]   [ Next > ]|   |
+|   +-----------------------------------------------------+   |
+|                                                             |
+|   +-----------------------------------------------------+   |
+|   | 🚀 LAUNCH CAMPAIGN         | ♾️ ENDLESS SURVIVAL    |   |
+|   | (Primary Action 1)         | (Primary Action 2)     |   |
+|   +-----------------------------------------------------+   |
+|                                                             |
+|   +--------------------------+ +--------------------------+ |
+|   | 🛠️ SHIP HANGAR           | | 🎯 DAILY ORDERS         | |
+|   | Lv.3 Laser • 1,240 🪙    | | 2/3 Completed           | |
+|   +--------------------------+ +--------------------------+ |
+|   +--------------------------+ +--------------------------+ |
+|   | 🎮 TOUCH CONTROLS        | | 🏆 HALL OF FAME         | |
+|   | Drag & Auto-Fire Guide   | | Global High Scores      | |
+|   +--------------------------+ +--------------------------+ |
+|                                                             |
+|   +-----------------------------------------------------+   |
+|   | ⛶ FULLSCREEN IMMERSION (Android Browser Optimized)  |   |
+|   +-----------------------------------------------------+   |
++-------------------------------------------------------------+
 ```
 
-#### Core Modules to Implement:
-1. `src/game/types.ts`: Game states, entity interfaces, weapon types, enemy definitions, boss phase structures.
-2. `src/game/audio/soundEngine.ts`: Nokia-style monophonic square-wave SFX (laser, hit, explosion, powerup, boss alarm, stage clear, game over jingle).
-3. `src/game/sprites.ts`: Crisp pixel vector renderers for the player fighter, 8 distinct alien enemies, 5 colossal bosses, projectiles, and collectible capsules.
-4. `src/game/stages.ts`: Stage wave pacing data, spawn tables, and boss encounter configurations for Stages 1–5.
-5. `src/game/gameEngine.ts`: Core simulation loop, collision detection (AABB + circle), particle system, camera shake, hit-stop mechanic, and wave progression.
-6. `src/components/GameCanvas.tsx`: High-DPI responsive canvas wrapper with CRT filter toggle.
-7. `src/components/GameHUD.tsx`: Low-occlusion, world-matched HUD with health bar, score, secondary weapons, and boss status.
-8. `src/components/VirtualControls.tsx`: Responsive on-screen directional pad and action buttons for mobile touch devices.
-9. `src/components/TitleScreen.tsx` & `src/components/GameOverModal.tsx`: Polished title screen with interactive mode selector, high scores, and victory/game over views.
+---
+
+## 5. Key Product Decisions & Trade-Offs
+
+- **Decision 1: Ping-Pong Mirroring vs. Single Scaled Image**
+  - *Chosen Approach*: Ping-pong mirrored tiling (`scaleX(-1)`) with soft boundary gradient feathering.
+  - *Why*: Instant, high-performance runtime solution that works with all three maps without requiring heavy external image generation or degrading canvas framerates.
+- **Decision 2: Responsive Scrollable Grid for Android**
+  - *Chosen Approach*: Adaptive 2-column action matrix inside a dynamic viewport height (`100dvh`) scroll container.
+  - *Why*: Solves height crowding across diverse Android devices (from 640px portrait to 360px landscape) without hiding any gameplay buttons.
+- **Decision 3: Firebase Auth (Google & Facebook) + Firestore Sync**
+  - *Chosen Approach*: Popups with auto-fallback and anonymous-to-authenticated profile merger.
+  - *Why*: Players can immediately enjoy offline/guest play, but can seamlessly preserve and restore their hard-earned upgrades and coins on Google or Facebook with zero loss.
+
+---
+
+## 6. Technical Architecture & Data Strategy
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                       React Game Shell                      │
+├──────────────────────────────┬──────────────────────────────┤
+│      TitleScreen (UI)        │       GameCanvas (View)      │
+│  - Adaptive 100dvh Grid      │  - GameEngine loop           │
+│  - Map Swipe & Select        │  - Ping-Pong Mirror Parallax │
+│  - AuthModal (Google / FB)   │  - Soft Seam Crossfader      │
+│  - Hangar & Daily Modals     │  - Particle / Combat systems │
+└──────────────┬───────────────┴──────────────┬───────────────┘
+               │                              │
+               ▼                              ▼
+┌──────────────────────────────┐ ┌────────────────────────────┐
+│      Firebase Service        │ │   Ship Upgrades & Orders   │
+│  - GoogleAuthProvider        │ │  - 5 Upgrade branches      │
+│  - FacebookAuthProvider      │ │  - 24-hr combat missions   │
+│  - Firestore: users/{uid}    │ │  - Gold coin drop engine   │
+└──────────────────────────────┘ └────────────────────────────┘
+```
+
+### Firestore Document Schema (`users/{userId}`)
+```json
+{
+  "uid": "string",
+  "displayName": "string",
+  "email": "string",
+  "photoURL": "string",
+  "providerId": "google.com | facebook.com | anonymous",
+  "highScore": 48250,
+  "coins": 1850,
+  "upgrades": {
+    "primaryWeapon": 3,
+    "shields": 2,
+    "speed": 4,
+    "magnet": 2,
+    "comboTime": 1
+  },
+  "dailyMissions": {
+    "lastRefreshedDay": "2026-11-04",
+    "missions": [...]
+  },
+  "lastPlayedMap": "NEBULA_STATION",
+  "updatedAt": "2026-11-04T05:30:00Z"
+}
+```
+
+---
+
+## 7. Phased Implementation Roadmap
+
+### Phase 1: Background Loop & Parallax Blending Engine
+- Modify `render()` in `src/game/gameEngine.ts` to implement ping-pong mirrored tile rendering (`tileIndex % 2 === 1 ? scaleX(-1) : normal`).
+- Add junction edge blend feathering to eliminate seam artifacts.
+- Verify continuous visual fluidity across all three maps (`NEBULA_STATION`, `TOXIC_BELT`, `SINGULARITY_ABYSS`).
+
+### Phase 2: Firebase Provisioning & Integration
+- Trigger `show_aistudio_ui` with `ui_type: "firebase_setup"` for user consent.
+- Complete `ProvisionFirebase` RPC via `fax` integration service.
+- Install `firebase` package (`install_applet_package`).
+- Create `firebase-blueprint.json` and deploy secure `firestore.rules`.
+- Create `src/game/firebase.ts` (Google & Facebook Auth helpers, Firestore progression sync).
+
+### Phase 3: Android Responsive Layout Restructuring
+- Overhaul `src/components/TitleScreen.tsx`:
+  - Adopt dynamic viewport height (`100dvh`) with safe-area spacing.
+  - Consolidate primary actions into side-by-side buttons.
+  - Compact map swipe carousel with embedded selector.
+  - 2x2 grid for Hangar, Missions, Controls, and Hall of Fame.
+  - Clean Cloud Profile pill in top header.
+
+### Phase 4: Auth Modal & End-to-End Progression Wiring
+- Create `src/components/AuthModal.tsx` for Google and Facebook login, sync status display, and profile management.
+- Wire progression sync in `src/App.tsx` on game over, coin collection, upgrade purchase, and mission claim.
+- Provide smooth guest-to-cloud profile merge.
+
+### Phase 5: Verification & Compilation
+- Validate with `compile_applet` and `lint_applet` (`tsc --noEmit`).
+- Verify smooth, seam-free parallax map rendering and mobile responsive controls.

@@ -154,6 +154,15 @@ class SoundEngine {
     this.playTone(220, 0.04, 'square', 120);
   }
 
+  public comboUp(multiplier: number) {
+    const baseFreq = 420 + Math.min(500, multiplier * 90);
+    this.playTone(baseFreq, 0.06, 'square', baseFreq * 1.35);
+  }
+
+  public comboBreak() {
+    this.playTone(260, 0.12, 'sawtooth', 90);
+  }
+
   public playerHit() {
     this.playNoise(0.2, 500, 50);
     this.playTone(140, 0.22, 'sawtooth', 40);
@@ -221,6 +230,34 @@ class SoundEngine {
 
   public menuSelect() {
     this.playTone(660, 0.05, 'square', 990);
+  }
+
+  public coin() {
+    // Sparkling high-frequency dual chime (B5 -> E6)
+    this.playTone(987.77, 0.04, 'square');
+    setTimeout(() => {
+      this.playTone(1318.51, 0.06, 'square');
+    }, 40);
+  }
+
+  public upgradeSuccess() {
+    // Energetic 3-tier power ascension: C5 -> G5 -> C6
+    const notes = [523.25, 783.99, 1046.5];
+    notes.forEach((freq, idx) => {
+      setTimeout(() => {
+        this.playTone(freq, 0.09, 'square');
+      }, idx * 75);
+    });
+  }
+
+  public missionClaim() {
+    // Celebratory victory fan-chime
+    const notes = [659.25, 783.99, 987.77, 1318.51];
+    notes.forEach((freq, idx) => {
+      setTimeout(() => {
+        this.playTone(freq, 0.1, 'square');
+      }, idx * 60);
+    });
   }
 }
 

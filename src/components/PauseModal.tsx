@@ -1,34 +1,38 @@
 import React from 'react';
-import { Play, RotateCcw, Home, Volume2, VolumeX, Tv, Heart, Sparkles } from 'lucide-react';
+import { Play, RotateCcw, Home, Volume2, VolumeX, Tv, Heart, Sparkles, Maximize, Minimize } from 'lucide-react';
 import { ThemeMode } from '../game/types';
 
 interface PauseModalProps {
   isMuted: boolean;
   crtEnabled: boolean;
   theme?: ThemeMode;
+  isFullscreen?: boolean;
   onResume: () => void;
   onRestart: () => void;
   onReturnToMenu: () => void;
   onToggleMute: () => void;
   onToggleCRT: () => void;
   onToggleTheme?: () => void;
+  onToggleFullscreen?: () => void;
 }
 
 export const PauseModal: React.FC<PauseModalProps> = ({
   isMuted,
   crtEnabled,
   theme = 'CYBER',
+  isFullscreen = false,
   onResume,
   onRestart,
   onReturnToMenu,
   onToggleMute,
   onToggleCRT,
-  onToggleTheme
+  onToggleTheme,
+  onToggleFullscreen
 }) => {
   const isPink = theme === 'SAKURA_PINK';
 
   return (
-    <div className="absolute inset-0 z-30 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs select-none">
+    <div className="absolute inset-0 z-30 flex items-center justify-center p-4 pt-safe pb-safe pl-[max(16px,env(safe-area-inset-left,16px))] pr-[max(16px,env(safe-area-inset-right,16px))] bg-slate-950/75 backdrop-blur-xs select-none">
       <div
         className={`w-full max-w-sm bg-slate-900 border p-6 rounded-xl shadow-2xl text-center animate-fade-in ${
           isPink
@@ -110,6 +114,20 @@ export const PauseModal: React.FC<PauseModalProps> = ({
             <Tv className="w-4 h-4" />
             <span>CRT {crtEnabled ? 'ON' : 'OFF'}</span>
           </button>
+
+          {onToggleFullscreen && (
+            <>
+              <span className="text-slate-700">|</span>
+              <button
+                onClick={onToggleFullscreen}
+                className="flex items-center gap-1.5 hover:text-white transition-colors"
+                title={isFullscreen ? 'Exit Fullscreen' : 'Enter Immersive Fullscreen'}
+              >
+                {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+                <span>{isFullscreen ? 'WINDOW' : 'FULL'}</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -1,6 +1,8 @@
 import React from 'react';
 import { GameMode, GameStats, ThemeMode } from '../game/types';
-import { RotateCcw, Home, Trophy, Skull, Award } from 'lucide-react';
+import { GAME_MAPS } from '../game/maps';
+import { getPlayerCoins } from '../game/upgrades';
+import { RotateCcw, Home, Trophy, Skull, Award, Coins } from 'lucide-react';
 
 interface GameOverModalProps {
   isVictory: boolean;
@@ -25,7 +27,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   const isPink = theme === 'SAKURA_PINK';
 
   return (
-    <div className="absolute inset-0 z-30 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-xs select-none">
+    <div className="absolute inset-0 z-30 flex items-center justify-center p-4 pt-safe pb-safe pl-[max(16px,env(safe-area-inset-left,16px))] pr-[max(16px,env(safe-area-inset-right,16px))] bg-slate-950/85 backdrop-blur-xs select-none">
       <div
         className={`w-full max-w-md bg-slate-900 border-2 ${
           isVictory
@@ -102,6 +104,39 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
               {stats.bossesDefeated} TITANS
             </span>
           </div>
+
+          <div className="flex justify-between items-center">
+            <span className="text-slate-400">MAX COMBO STREAK</span>
+            <span className={`${isPink ? 'text-pink-300' : 'text-cyan-400'} tabular-nums font-bold`}>
+              {stats.maxCombo || 0} HITS
+            </span>
+          </div>
+
+          <div className="flex justify-between items-center pt-2 border-t border-slate-800/80">
+            <span className="text-slate-400 flex items-center gap-1.5">
+              <Coins className="w-3.5 h-3.5 text-amber-400" />
+              <span>COINS EXTRACTED</span>
+            </span>
+            <span className="text-amber-400 font-bold tabular-nums">
+              +{stats.coinsCollected || 0} COINS
+            </span>
+          </div>
+
+          <div className="flex justify-between items-center">
+            <span className="text-slate-400">TOTAL VAULT BALANCE</span>
+            <span className="text-slate-200 font-semibold tabular-nums">
+              {getPlayerCoins().toLocaleString()} COINS
+            </span>
+          </div>
+
+          {stats.mapId && GAME_MAPS[stats.mapId] && (
+            <div className="flex justify-between items-center text-[11px]">
+              <span className="text-slate-500">MAP / SECTOR</span>
+              <span className="text-cyan-300 font-semibold">
+                {GAME_MAPS[stats.mapId].name} ({GAME_MAPS[stats.mapId].difficulty})
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Action Buttons */}

@@ -1,0 +1,35 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Player profile storing high scores, gold coin balance, ship upgrades, and mission progression",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Unique user ID from Firebase Auth" },
+        "displayName": { "type": "string", "description": "Player display name" },
+        "email": { "type": "string", "description": "Player email" },
+        "photoURL": { "type": "string", "description": "Player avatar photo URL" },
+        "providerId": { "type": "string", "description": "Auth provider (google.com, facebook.com, anonymous)" },
+        "highScore": { "type": "number", "description": "Personal best game score" },
+        "coins": { "type": "number", "description": "Accumulated gold coin currency balance" },
+        "upgrades": {
+          "type": "object",
+          "description": "Spaceship upgrade tiers for laser, shields, speed, magnet, and combo"
+        },
+        "dailyMissions": {
+          "type": "object",
+          "description": "24-hour combat orders state and claimed rewards"
+        },
+        "lastPlayedMap": { "type": "string", "description": "Last selected map ID" },
+        "updatedAt": { "type": "string", "description": "Timestamp of the last cloud save" }
+      },
+      "required": ["uid", "highScore", "coins"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Individual player profiles synchronized across devices"
+    }
+  }
+}

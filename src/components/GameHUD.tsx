@@ -1,5 +1,6 @@
 import React from 'react';
 import { HUDData } from '../game/types';
+import { GAME_MAPS } from '../game/maps';
 import {
   Volume2,
   VolumeX,
@@ -8,22 +9,26 @@ import {
   Shield,
   Bomb,
   Crosshair,
-  Gamepad2,
   Zap,
   Sparkles,
-  Heart
+  Heart,
+  Maximize,
+  Minimize,
+  Smartphone,
+  Coins
 } from 'lucide-react';
 
 interface GameHUDProps {
   hud: HUDData;
   isMuted: boolean;
   crtEnabled: boolean;
-  touchControlsForced: boolean;
+  isFullscreen?: boolean;
   onToggleMute: () => void;
   onToggleCRT: () => void;
-  onToggleTouchControls: () => void;
   onToggleAutoFire: () => void;
   onToggleTheme: () => void;
+  onToggleFullscreen?: () => void;
+  onToggleSafeFit?: () => void;
   onPause: () => void;
   onFireSecondary: () => void;
   onSwitchSecondary: () => void;
@@ -33,12 +38,13 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   hud,
   isMuted,
   crtEnabled,
-  touchControlsForced,
+  isFullscreen = false,
   onToggleMute,
   onToggleCRT,
-  onToggleTouchControls,
   onToggleAutoFire,
   onToggleTheme,
+  onToggleFullscreen,
+  onToggleSafeFit,
   onPause,
   onFireSecondary,
   onSwitchSecondary
@@ -54,7 +60,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   };
 
   return (
-    <div className="absolute inset-0 pointer-events-none z-10 flex flex-col justify-between p-2 sm:p-4 md:p-5 select-none pt-safe pb-safe">
+    <div className="absolute inset-0 pointer-events-none z-10 flex flex-col justify-between py-2 sm:py-3.5 select-none pt-safe pb-safe pl-[max(16px,env(safe-area-inset-left,16px))] pr-[max(16px,env(safe-area-inset-right,16px))] sm:px-6">
       {/* Top Status Cluster */}
       <div className="flex items-start justify-between gap-2 sm:gap-4 w-full">
         {/* Left: Hull Health & Lives */}
@@ -161,35 +167,164 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           </div>
         )}
 
-        {/* Right: Score & High Score */}
-        <div
-          className={`flex flex-col items-end gap-0.5 sm:gap-1 border backdrop-blur-xs px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg shadow-lg pointer-events-auto transition-colors ${
-            isPink
-              ? 'bg-rose-950/80 border-pink-700/60 shadow-[0_0_12px_rgba(244,114,182,0.2)]'
-              : 'bg-slate-950/80 border-slate-800/80 shadow-lg'
-          }`}
-        >
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            <span className={`text-[9px] sm:text-[10px] font-arcade ${isPink ? 'text-pink-300' : 'text-amber-400'}`}>
-              SCORE
-            </span>
-            <span className="text-xs sm:text-base font-mono tabular-nums font-bold text-white tracking-wider">
-              {hud.score.toLocaleString()}
-            </span>
+        {/* Right: Score & High Score & Combo Multiplier */}
+        <div className="flex flex-col items-end gap-1.5 pointer-events-auto">
+          <div
+            className={`flex flex-col items-end gap-0.5 sm:gap-1 border backdrop-blur-xs px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg shadow-lg transition-colors ${
+              isPink
+                ? 'bg-rose-950/80 border-pink-700/60 shadow-[0_0_12px_rgba(244,114,182,0.2)]'
+                : 'bg-slate-950/80 border-slate-800/80 shadow-lg'
+            }`}
+          >
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <span className={`text-[9px] sm:text-[10px] font-arcade ${isPink ? 'text-pink-300' : 'text-amber-400'}`}>
+                SCORE
+              </span>
+              {hud.comboMultiplier > 1.0 && (
+                <span
+                  className={`text-[8px] sm:text-[9px] px-1 py-0.2 rounded font-mono font-bold border tracking-wider animate-pulse ${
+                    hud.comboMultiplier >= 5.0
+                      ? isPink
+                        ? 'bg-pink-500/30 text-pink-200 border-pink-400 shadow-[0_0_8px_rgba(244,114,182,0.6)]'
+                        : 'bg-amber-500/30 text-amber-200 border-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.6)]'
+                      : isPink
+                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                      : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
+                  }`}
+                >
+                  x{hud.comboMultiplier.toFixed(1)}
+                </span>
+              )}
+              <span className="text-xs sm:text-base font-mono tabular-nums font-bold text-white tracking-wider">
+                {hud.score.toLocaleString()}
+              </span>
+            </div>
+            <div className="flex items-center gap-1 sm:gap-2 text-[9px] sm:text-[10px] text-slate-400">
+              <span className="font-arcade text-slate-500">HI</span>
+              <span className="font-mono tabular-nums text-slate-300">
+                {Math.max(hud.score, hud.highScore).toLocaleString()}
+              </span>
+              <span className="text-slate-600">·</span>
+              <span className={`font-mono font-semibold ${isPink ? 'text-pink-400' : 'text-cyan-400'}`}>
+                {hud.mode === 'CAMPAIGN' ? `STAGE ${hud.stage}` : 'ENDLESS'}
+              </span>
+            </div>
+
+            {/* Gold Coins Gathered & Map Multiplier Pill */}
+            <div className="flex items-center gap-1.5 pt-0.5 border-t border-slate-800/60 w-full justify-between">
+              <div className="flex items-center gap-1 text-[9px] font-mono text-amber-300">
+                <Coins className="w-3 h-3 text-amber-400 animate-pulse" />
+                <span className="font-bold">+{hud.sessionCoins || 0}</span>
+                <span className="text-slate-500 text-[8px]">({hud.coins || 0})</span>
+              </div>
+
+              {hud.currentMapId && GAME_MAPS[hud.currentMapId] && (
+                <span
+                  className={`text-[8px] font-mono px-1.5 py-0.2 rounded font-bold border ${
+                    GAME_MAPS[hud.currentMapId].difficulty === 'EASY'
+                      ? 'bg-cyan-950 text-cyan-300 border-cyan-800'
+                      : GAME_MAPS[hud.currentMapId].difficulty === 'MEDIUM'
+                      ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                      : 'bg-fuchsia-950 text-fuchsia-300 border-fuchsia-800'
+                  }`}
+                >
+                  {GAME_MAPS[hud.currentMapId].difficulty} ({GAME_MAPS[hud.currentMapId].multiplier}x)
+                </span>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-1 sm:gap-2 text-[9px] sm:text-[10px] text-slate-400">
-            <span className="font-arcade text-slate-500">HI</span>
-            <span className="font-mono tabular-nums text-slate-300">
-              {Math.max(hud.score, hud.highScore).toLocaleString()}
-            </span>
-            <span className="text-slate-600">·</span>
-            <span className={`font-mono font-semibold ${isPink ? 'text-pink-400' : 'text-cyan-400'}`}>
-              {hud.mode === 'CAMPAIGN' ? `STAGE ${hud.stage}` : 'ENDLESS'}
-            </span>
-          </div>
-          {hud.combo > 1 && (
-            <div className={`text-[9px] sm:text-[10px] font-arcade animate-bounce ${isPink ? 'text-pink-300' : 'text-amber-400'}`}>
-              {hud.combo}x COMBO
+
+          {/* Arcade Combo Multiplier Indicator */}
+          {hud.combo > 0 && (
+            <div
+              className={`flex flex-col items-end border backdrop-blur-xs px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg transition-all duration-150 animate-in fade-in zoom-in-95 ${
+                hud.comboMultiplier >= 5.0
+                  ? isPink
+                    ? 'bg-rose-950/90 border-pink-400 shadow-[0_0_16px_rgba(244,114,182,0.6)]'
+                    : 'bg-slate-950/90 border-amber-400 shadow-[0_0_16px_rgba(245,158,11,0.6)]'
+                  : hud.comboMultiplier >= 3.0
+                  ? isPink
+                    ? 'bg-rose-950/85 border-pink-600/80 shadow-[0_0_10px_rgba(244,114,182,0.3)]'
+                    : 'bg-slate-950/85 border-amber-500/70 shadow-[0_0_10px_rgba(245,158,11,0.3)]'
+                  : isPink
+                  ? 'bg-rose-950/80 border-pink-700/60'
+                  : 'bg-slate-950/80 border-cyan-800/80'
+              }`}
+            >
+              {/* Hit Count & Multiplier Tier */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-baseline gap-1">
+                  <span
+                    className={`font-arcade text-xs sm:text-sm font-bold tracking-tight ${
+                      hud.comboMultiplier >= 5.0
+                        ? 'text-amber-300 animate-pulse'
+                        : isPink
+                        ? 'text-pink-300'
+                        : 'text-cyan-300'
+                    }`}
+                  >
+                    {hud.combo}
+                  </span>
+                  <span className="text-[8px] sm:text-[9px] font-arcade text-slate-400">HITS</span>
+                </div>
+
+                <div
+                  className={`px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-mono font-extrabold tracking-wider uppercase border flex items-center gap-1 ${
+                    hud.comboMultiplier >= 5.0
+                      ? isPink
+                        ? 'bg-pink-500/30 text-pink-200 border-pink-400 shadow-[0_0_8px_rgba(244,114,182,0.7)]'
+                        : 'bg-amber-500/30 text-amber-200 border-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.7)]'
+                      : hud.comboMultiplier >= 3.0
+                      ? isPink
+                        ? 'bg-pink-900/60 text-pink-300 border-pink-500/60'
+                        : 'bg-amber-900/60 text-amber-300 border-amber-500/60'
+                      : hud.comboMultiplier >= 2.0
+                      ? isPink
+                        ? 'bg-purple-900/60 text-purple-300 border-purple-500/60'
+                        : 'bg-emerald-900/60 text-emerald-300 border-emerald-500/60'
+                      : isPink
+                      ? 'bg-rose-900/40 text-pink-300 border-pink-700/40'
+                      : 'bg-cyan-950/60 text-cyan-300 border-cyan-700/60'
+                  }`}
+                >
+                  <Zap
+                    className={`w-2.5 h-2.5 sm:w-3 sm:h-3 ${
+                      hud.comboMultiplier >= 5.0 ? 'animate-bounce text-amber-300' : ''
+                    }`}
+                  />
+                  <span>
+                    {hud.comboMultiplier >= 5.0
+                      ? 'MAX x5.0'
+                      : `x${hud.comboMultiplier.toFixed(1)} MULTI`}
+                  </span>
+                </div>
+              </div>
+
+              {/* Combo Decay Timer Gauge Bar */}
+              <div className="w-full mt-1 flex flex-col gap-0.5">
+                <div className="w-24 sm:w-32 h-1 sm:h-1.5 bg-slate-900/90 rounded-full overflow-hidden border border-slate-700/60 relative">
+                  <div
+                    className={`h-full transition-all duration-75 rounded-full ${
+                      hud.comboTimerRatio < 0.25
+                        ? 'bg-rose-500 animate-pulse'
+                        : hud.comboTimerRatio < 0.5
+                        ? 'bg-amber-500'
+                        : isPink
+                        ? 'bg-gradient-to-r from-pink-500 to-rose-400'
+                        : 'bg-gradient-to-r from-cyan-400 to-emerald-400'
+                    }`}
+                    style={{ width: `${Math.max(0, Math.min(100, hud.comboTimerRatio * 100))}%` }}
+                  />
+                </div>
+
+                {/* Multiplier Milestone Scale */}
+                <div className="flex items-center justify-between text-[7px] sm:text-[8px] font-mono text-slate-400 px-0.5">
+                  <span className={hud.comboMultiplier >= 1.0 ? (isPink ? 'text-pink-400' : 'text-cyan-400') : 'text-slate-600'}>1x</span>
+                  <span className={hud.comboMultiplier >= 2.0 ? (isPink ? 'text-purple-300 font-bold' : 'text-emerald-400 font-bold') : 'text-slate-600'}>2x</span>
+                  <span className={hud.comboMultiplier >= 3.0 ? (isPink ? 'text-pink-300 font-bold' : 'text-amber-400 font-bold') : 'text-slate-600'}>3x</span>
+                  <span className={hud.comboMultiplier >= 5.0 ? (isPink ? 'text-pink-200 font-bold' : 'text-amber-300 font-bold') : 'text-slate-600'}>5x MAX</span>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -297,20 +432,6 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </button>
 
-          {/* Touch Controls Toggle */}
-          <button
-            onClick={onToggleTouchControls}
-            title={touchControlsForced ? 'Hide Virtual Touch Controls' : 'Show Virtual Touch Controls'}
-            className={`p-1.5 rounded transition-colors ${
-              touchControlsForced || hud.touchControlsActive
-                ? isPink
-                  ? 'bg-pink-900/60 border border-pink-500 text-pink-200'
-                  : 'bg-emerald-950 border border-emerald-700 text-emerald-300'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-            }`}
-          >
-            <Gamepad2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-          </button>
 
           {/* CRT Scanline Toggle */}
           <button
@@ -326,6 +447,48 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           >
             <Tv className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </button>
+
+          {/* Safe Bounds Toggle (Android / Mobile Optimization) */}
+          {onToggleSafeFit && (
+            <button
+              onClick={onToggleSafeFit}
+              title={
+                hud.safeFitMode !== false
+                  ? 'Android Safe Bounds Active (Padded against notches & cutouts) - Click to toggle Full Stretch'
+                  : 'Full Screen Stretch Active - Click for Android Safe Bounds'
+              }
+              className={`p-1.5 rounded transition-colors ${
+                hud.safeFitMode !== false
+                  ? isPink
+                    ? 'bg-pink-900/60 border border-pink-500 text-pink-200'
+                    : 'bg-cyan-950 border border-cyan-600 text-cyan-300'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+              }`}
+            >
+              <Smartphone className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            </button>
+          )}
+
+          {/* Fullscreen Immersive Mode Toggle (Hides Android browser bars) */}
+          {onToggleFullscreen && (
+            <button
+              onClick={onToggleFullscreen}
+              title={isFullscreen ? 'Exit Fullscreen' : 'Enter Immersive Fullscreen (Hides browser navigation)'}
+              className={`p-1.5 rounded transition-colors ${
+                isFullscreen
+                  ? isPink
+                    ? 'bg-pink-900/60 border border-pink-500 text-pink-200'
+                    : 'bg-emerald-950 border border-emerald-600 text-emerald-300'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+              }`}
+            >
+              {isFullscreen ? (
+                <Minimize className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              ) : (
+                <Maximize className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              )}
+            </button>
+          )}
 
           {/* Sound Mute Toggle */}
           <button

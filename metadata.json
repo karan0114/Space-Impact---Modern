@@ -2,5 +2,7 @@
   "name": "Space Impact — Retro Arcade Shmup",
   "description": "A high-octane reimagining of the classic Nokia space combat game featuring 5 campaign stages, signature bosses, endless mode, weapon upgrades, and authentic chiptune audio.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

@@ -1,7 +1,7 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GameEngine } from '../game/gameEngine';
 import { ThemeMode } from '../game/types';
-import { Crosshair, Bomb, Zap, Heart } from 'lucide-react';
+import { Crosshair, Bomb, Zap } from 'lucide-react';
 
 interface VirtualControlsProps {
   engine: GameEngine | null;
@@ -25,8 +25,6 @@ export const VirtualControls: React.FC<VirtualControlsProps> = ({
     );
   });
 
-  const dpadRef = useRef<HTMLDivElement>(null);
-  const [activeDpad, setActiveDpad] = useState({ x: 0, y: 0 });
   const [isFiring, setIsFiring] = useState(false);
   const [autoFireActive, setAutoFireActive] = useState(true);
 
@@ -49,41 +47,6 @@ export const VirtualControls: React.FC<VirtualControlsProps> = ({
   if (!isTouchEnvironment && !forceVisible) {
     return null;
   }
-
-  const handleDpadTouch = (e: React.TouchEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    if (!dpadRef.current || !engine) return;
-    const rect = dpadRef.current.getBoundingClientRect();
-    const touch = e.touches[0];
-    if (!touch) return;
-
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-
-    const deltaX = touch.clientX - centerX;
-    const deltaY = touch.clientY - centerY;
-    const dist = Math.hypot(deltaX, deltaY);
-
-    if (dist < 8) {
-      engine.virtualDpad = { x: 0, y: 0 };
-      setActiveDpad({ x: 0, y: 0 });
-      return;
-    }
-
-    const normX = deltaX / dist;
-    const normY = deltaY / dist;
-
-    engine.virtualDpad = { x: normX, y: normY };
-    setActiveDpad({ x: normX, y: normY });
-  };
-
-  const handleDpadEnd = (e: React.TouchEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    if (engine) {
-      engine.virtualDpad = { x: 0, y: 0 };
-    }
-    setActiveDpad({ x: 0, y: 0 });
-  };
 
   const handleFireStart = (e: React.TouchEvent | React.MouseEvent) => {
     e.stopPropagation();
@@ -133,59 +96,11 @@ export const VirtualControls: React.FC<VirtualControlsProps> = ({
             : 'text-cyan-400/80 bg-slate-950/70 border-cyan-900/60 shadow-[0_0_10px_rgba(6,182,212,0.2)]'
         }`}
       >
-        TOUCH & SLIDE ANYWHERE TO PILOT
+        DRAG ANYWHERE ON SCREEN TO PILOT
       </div>
 
-      {/* Left: Directional Touch Pad */}
-      <div className="absolute left-3 bottom-4 md:left-6 md:bottom-6 pointer-events-auto touch-none">
-        <div
-          ref={dpadRef}
-          onTouchStart={handleDpadTouch}
-          onTouchMove={handleDpadTouch}
-          onTouchEnd={handleDpadEnd}
-          onTouchCancel={handleDpadEnd}
-          className={`relative w-28 h-28 sm:w-36 sm:h-36 rounded-full backdrop-blur-xs flex items-center justify-center transition-all ${
-            isPink
-              ? 'bg-rose-950/70 border-2 border-pink-500/50 active:border-pink-300 shadow-[0_0_16px_rgba(244,114,182,0.3)]'
-              : 'bg-slate-950/70 border-2 border-cyan-500/40 active:border-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.2)]'
-          }`}
-        >
-          {/* Central Thumb Knob */}
-          <div
-            className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 flex items-center justify-center transition-transform duration-75 ${
-              isPink
-                ? 'bg-gradient-to-br from-pink-500 to-rose-700 border-pink-200 shadow-[0_0_12px_rgba(244,114,182,0.7)]'
-                : 'bg-gradient-to-br from-cyan-500/80 to-slate-800 border-cyan-300 shadow-[0_0_10px_rgba(6,182,212,0.6)]'
-            }`}
-            style={{
-              transform: `translate(${activeDpad.x * 22}px, ${activeDpad.y * 22}px)`
-            }}
-          >
-            {isPink ? (
-              <Heart className="w-3.5 h-3.5 text-white/90 fill-white" />
-            ) : (
-              <div className="w-3.5 h-3.5 rounded-full bg-white/80" />
-            )}
-          </div>
-
-          {/* D-Pad Directional Indicators */}
-          <div className={`absolute top-1.5 text-[9px] font-arcade ${isPink ? 'text-pink-300' : 'text-cyan-400/80'}`}>
-            ▲
-          </div>
-          <div className={`absolute bottom-1.5 text-[9px] font-arcade ${isPink ? 'text-pink-300' : 'text-cyan-400/80'}`}>
-            ▼
-          </div>
-          <div className={`absolute left-1.5 text-[9px] font-arcade ${isPink ? 'text-pink-300' : 'text-cyan-400/80'}`}>
-            ◀
-          </div>
-          <div className={`absolute right-1.5 text-[9px] font-arcade ${isPink ? 'text-pink-300' : 'text-cyan-400/80'}`}>
-            ▶
-          </div>
-        </div>
-      </div>
-
-      {/* Right: Phone Action Cluster */}
-      <div className="absolute right-3 bottom-4 md:right-6 md:bottom-6 flex items-end gap-2.5 sm:gap-3 pointer-events-auto touch-none">
+      {/* Right: Phone Action Cluster with Android Navigation Clearance */}
+      <div className="absolute right-[max(18px,env(safe-area-inset-right,18px))] bottom-[max(16px,env(safe-area-inset-bottom,16px))] md:right-8 md:bottom-8 flex items-end gap-2.5 sm:gap-3 pointer-events-auto touch-none">
         {/* Secondary ordnance switch & fire */}
         <div className="flex flex-col gap-2 items-center">
           {/* Auto-fire toggle button */}

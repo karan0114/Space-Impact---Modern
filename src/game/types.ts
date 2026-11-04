@@ -112,6 +112,31 @@ export interface PowerUp {
 
 export type ThemeMode = 'CYBER' | 'SAKURA_PINK';
 
+export interface ParallaxStar {
+  x: number;
+  y: number;
+  baseSpeed: number;
+  depth: number;
+  layer: number; // 0: distant, 1: mid-field, 2: foreground
+  size: number;
+  alpha: number;
+  baseAlpha: number;
+  color: string;
+  twinkleSpeed: number;
+  twinklePhase: number;
+  shape: 'DOT' | 'CROSS' | 'DIAMOND';
+}
+
+export interface CosmicNebula {
+  x: number;
+  y: number;
+  radius: number;
+  baseSpeed: number;
+  colorCenter: string;
+  colorEdge: string;
+  alpha: number;
+}
+
 export interface Particle {
   x: number;
   y: number;
@@ -153,6 +178,67 @@ export interface StageConfig {
   spawnInterval: number;
 }
 
+export interface GoldCoin {
+  id: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  value: number;
+  radius: number;
+  age: number;
+  rotation: number;
+}
+
+export type MapDifficulty = 'EASY' | 'MEDIUM' | 'HARD';
+export type MapId = 'NEBULA_STATION' | 'TOXIC_BELT' | 'SINGULARITY_ABYSS';
+
+export interface MapConfig {
+  id: MapId;
+  name: string;
+  subtitle: string;
+  difficulty: MapDifficulty;
+  description: string;
+  multiplier: number;
+  imageUrl: string;
+  themeColor: string;
+  accentColor: string;
+  glowColor: string;
+  enemySpeedMod: number;
+  enemyHpMod: number;
+  coinDropRate: number;
+}
+
+export type ShipUpgradeKey = 'blasterPower' | 'reinforcedHull' | 'shieldGenerator' | 'magnetTurbine' | 'hyperThrusters';
+
+export interface ShipUpgrades {
+  blasterPower: number; // 0 to 5
+  reinforcedHull: number; // 0 to 5
+  shieldGenerator: number; // 0 to 5
+  magnetTurbine: number; // 0 to 5
+  hyperThrusters: number; // 0 to 5
+}
+
+export interface UpgradeTierInfo {
+  tier: number;
+  cost: number;
+  title: string;
+  bonusDesc: string;
+}
+
+export type MissionCategory = 'COINS' | 'KILLS' | 'COMBO' | 'BOSS' | 'SORTIES';
+
+export interface DailyMission {
+  id: string;
+  title: string;
+  description: string;
+  target: number;
+  current: number;
+  rewardCoins: number;
+  claimed: boolean;
+  category: MissionCategory;
+}
+
 export interface HUDData {
   hp: number;
   maxHp: number;
@@ -160,6 +246,9 @@ export interface HUDData {
   lives: number;
   score: number;
   highScore: number;
+  coins: number;
+  sessionCoins: number;
+  currentMapId: MapId;
   stage: number;
   mode: GameMode;
   weaponTier: number;
@@ -173,11 +262,14 @@ export interface HUDData {
     maxHp: number;
   } | null;
   combo: number;
+  comboMultiplier: number;
+  comboTimerRatio: number;
   transitioningSector: boolean;
   transitionNextStage?: number;
   autoFire: boolean;
   touchControlsActive: boolean;
   theme: ThemeMode;
+  safeFitMode?: boolean;
 }
 
 export interface GameStats {
@@ -189,4 +281,8 @@ export interface GameStats {
   accuracy: number;
   bossesDefeated: number;
   playTimeSeconds: number;
+  maxCombo: number;
+  coinsCollected: number;
+  mapId?: MapId;
 }
+

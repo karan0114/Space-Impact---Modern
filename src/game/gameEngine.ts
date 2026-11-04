@@ -1,21 +1,29 @@
 import { soundEngine } from './audio/soundEngine';
 import { drawBoss, drawEnemy, drawPlayerShip, drawPowerUp, drawProjectile } from './sprites';
 import { CAMPAIGN_STAGES, getStageConfig } from './stages';
+import { GAME_MAPS, getMapConfig } from './maps';
+import { getPlayerCoins, savePlayerCoins, addPlayerCoins, getShipUpgrades } from './upgrades';
+import { recordMissionProgress } from './dailyMissions';
 import {
   Boss,
+  CosmicNebula,
   Enemy,
   EnemyType,
   FloatingText,
   GameMode,
   GameState,
   GameStats,
+  GoldCoin,
   HUDData,
+  MapId,
+  ParallaxStar,
   Particle,
   PlayerState,
   PowerUp,
   PrimaryWeapon,
   Projectile,
   SecondaryWeapon,
+  ShipUpgrades,
   StageConfig,
   ThemeMode
 } from './types';
@@ -51,6 +59,9 @@ export class GameEngine {
   public score: number = 0;
   public highScore: number = 0;
   public combo: number = 0;
+  public comboMultiplier: number = 1.0;
+  public comboTimer: number = 0;
+  public readonly maxComboTimer: number = 2.6;
   public stats: GameStats = {
     score: 0,
     stageReached: 1,
@@ -59,7 +70,9 @@ export class GameEngine {
     shotsHit: 0,
     accuracy: 100,
     bossesDefeated: 0,
-    playTimeSeconds: 0
+    playTimeSeconds: 0,
+    maxCombo: 0,
+    coinsCollected: 0
   };
 
   // Entities
@@ -70,9 +83,25 @@ export class GameEngine {
   public powerUps: PowerUp[] = [];
   public particles: Particle[] = [];
   public floatingTexts: FloatingText[] = [];
+  public goldCoins: GoldCoin[] = [];
 
-  // Starfield
-  private stars: Array<{ x: number; y: number; speed: number; size: number; alpha: number }> = [];
+  // Map & Environmental Backgrounds
+  public selectedMapId: MapId = 'NEBULA_STATION';
+  private mapImages: Record<MapId, HTMLImageElement>;
+  private mapScrollX: number = 0;
+
+  // Economy & Upgrades
+  public coins: number = 0;
+  public sessionCoins: number = 0;
+  public upgrades: ShipUpgrades = getShipUpgrades();
+  private timeSinceLastDamage: number = 0;
+
+  // Parallax Starfield & Cosmic Nebulae
+  private parallaxStars: ParallaxStar[] = [];
+  private cosmicNebulae: CosmicNebula[] = [];
+  public playerVelocity: { vx: number; vy: number } = { vx: 0, vy: 0 };
+  private lastPlayerX: number = 60;
+  private lastPlayerY: number = 200;
 
   // Spawning
   private nextEnemySpawn: number = 0;
@@ -86,6 +115,13 @@ export class GameEngine {
   public isDirectDragging: boolean = false;
   private lastTouchPos: { x: number; y: number } | null = null;
 
+  // Android & Mobile Browser Safe Viewport Margins
+  public safeLeftMargin: number = 36;
+  public safeRightMargin: number = 36;
+  public safeTopMargin: number = 16;
+  public safeBottomMargin: number = 18;
+  public safeFitMode: boolean = true;
+
   // Callbacks
   public onHUDUpdate?: (hud: HUDData) => void;
   public onStateChange?: (state: GameState, stats?: GameStats) => void;
@@ -95,7 +131,25 @@ export class GameEngine {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
     this.stageConfig = getStageConfig(1);
 
-    // Initialize high score & theme from storage
+    // Initialize map backgrounds
+    this.mapImages = {
+      NEBULA_STATION: new Image(),
+      TOXIC_BELT: new Image(),
+      SINGULARITY_ABYSS: new Image()
+    };
+    this.mapImages.NEBULA_STATION.src = GAME_MAPS.NEBULA_STATION.imageUrl;
+    this.mapImages.TOXIC_BELT.src = GAME_MAPS.TOXIC_BELT.imageUrl;
+    this.mapImages.SINGULARITY_ABYSS.src = GAME_MAPS.SINGULARITY_ABYSS.imageUrl;
+
+    const savedMap = localStorage.getItem('space_impact_selected_map') as MapId;
+    if (savedMap && GAME_MAPS[savedMap]) {
+      this.selectedMapId = savedMap;
+    }
+
+    this.coins = getPlayerCoins();
+    this.upgrades = getShipUpgrades();
+
+    // Initialize high score, theme & safe fit mode from storage
     const savedHighScore = localStorage.getItem('space_impact_highscore');
     if (savedHighScore) {
       this.highScore = parseInt(savedHighScore, 10) || 0;
@@ -106,10 +160,18 @@ export class GameEngine {
       this.theme = savedTheme;
     }
 
+    const savedSafeFit = localStorage.getItem('space_impact_safefit');
+    this.safeFitMode = savedSafeFit !== 'false';
+
+    this.updateSafeMargins();
+
     // Default player state
     this.player = this.createDefaultPlayer();
+    this.lastPlayerX = this.player.x;
+    this.lastPlayerY = this.player.y;
 
-    // Create background stars
+    // Create background nebulae & parallax stars
+    this.initNebulae();
     this.initStars();
 
     // Bind keyboard and touch events
@@ -121,6 +183,8 @@ export class GameEngine {
     this.theme = this.theme === 'CYBER' ? 'SAKURA_PINK' : 'CYBER';
     localStorage.setItem('space_impact_theme', this.theme);
     soundEngine.menuClick();
+    this.initNebulae();
+    this.initStars();
     this.addFloatingText(
       this.theme === 'SAKURA_PINK' ? 'SAKURA PINK THEME' : 'CYBER NEON THEME',
       this.player.x,
@@ -132,55 +196,313 @@ export class GameEngine {
     return this.theme;
   }
 
+  public updateSafeMargins() {
+    const isMobile =
+      typeof window !== 'undefined' &&
+      (window.innerWidth <= 1024 ||
+        'ontouchstart' in window ||
+        navigator.maxTouchPoints > 0);
+
+    const w = this.canvas.width || (typeof window !== 'undefined' ? window.innerWidth : 800);
+    const h = this.canvas.height || (typeof window !== 'undefined' ? window.innerHeight : 450);
+    const aspect = w / Math.max(1, h);
+
+    if (!this.safeFitMode) {
+      this.safeLeftMargin = 12;
+      this.safeRightMargin = 12;
+      this.safeTopMargin = 12;
+      this.safeBottomMargin = 12;
+      return;
+    }
+
+    if (isMobile) {
+      // Dynamic ratio adaptation across all smartphone form factors:
+      if (aspect >= 2.1) {
+        // Ultra-wide displays (20:9, 21:9 like Galaxy S/Ultra, Xperia, Motorola, Xiaomi)
+        this.safeLeftMargin = Math.max(52, Math.round(w * 0.085));
+        this.safeRightMargin = Math.max(52, Math.round(w * 0.085));
+        this.safeTopMargin = Math.max(18, Math.round(h * 0.045));
+        this.safeBottomMargin = Math.max(22, Math.round(h * 0.06));
+      } else if (aspect >= 1.75) {
+        // Standard modern landscape smartphone (18:9, 19:9, 19.5:9 like iPhones, Pixel)
+        this.safeLeftMargin = Math.max(40, Math.round(w * 0.065));
+        this.safeRightMargin = Math.max(40, Math.round(w * 0.065));
+        this.safeTopMargin = Math.max(16, Math.round(h * 0.04));
+        this.safeBottomMargin = Math.max(20, Math.round(h * 0.055));
+      } else if (aspect >= 1.25) {
+        // Tablets, foldables (16:10, 3:2, 4:3 iPad / Android tablets)
+        this.safeLeftMargin = Math.max(24, Math.round(w * 0.035));
+        this.safeRightMargin = Math.max(24, Math.round(w * 0.035));
+        this.safeTopMargin = Math.max(16, Math.round(h * 0.035));
+        this.safeBottomMargin = Math.max(18, Math.round(h * 0.04));
+      } else {
+        // Tall portrait ratio (e.g. 9:16, 9:20)
+        this.safeLeftMargin = Math.max(16, Math.round(w * 0.035));
+        this.safeRightMargin = Math.max(16, Math.round(w * 0.035));
+        this.safeTopMargin = Math.max(24, Math.round(h * 0.05));
+        this.safeBottomMargin = Math.max(36, Math.round(h * 0.08));
+      }
+    } else {
+      this.safeLeftMargin = 22;
+      this.safeRightMargin = 22;
+      this.safeTopMargin = 14;
+      this.safeBottomMargin = 14;
+    }
+  }
+
+  public toggleSafeFitMode(): boolean {
+    this.safeFitMode = !this.safeFitMode;
+    localStorage.setItem('space_impact_safefit', String(this.safeFitMode));
+    this.updateSafeMargins();
+    soundEngine.menuClick();
+    this.addFloatingText(
+      this.safeFitMode ? 'ANDROID SAFE BOUNDS: ACTIVE' : 'FULL SCREEN STRETCH: ACTIVE',
+      this.canvas.width * 0.5,
+      this.canvas.height * 0.5,
+      '#38bdf8',
+      14
+    );
+    this.emitHUD();
+    return this.safeFitMode;
+  }
+
+  public setMap(mapId: MapId) {
+    if (GAME_MAPS[mapId]) {
+      this.selectedMapId = mapId;
+      localStorage.setItem('space_impact_selected_map', mapId);
+      soundEngine.menuClick();
+      this.emitHUD();
+    }
+  }
+
+  public refreshUpgradesAndCoins() {
+    this.upgrades = getShipUpgrades();
+    this.coins = getPlayerCoins();
+    if (this.player) {
+      const maxHp = 100 + this.upgrades.reinforcedHull * 25;
+      this.player.maxHp = maxHp;
+      this.player.speed = 340 + this.upgrades.hyperThrusters * 34;
+      const shieldTiers = [30, 55, 80, 110, 150];
+      const maxShield = this.upgrades.shieldGenerator > 0 ? shieldTiers[this.upgrades.shieldGenerator - 1] : 0;
+      this.player.shieldHp = Math.max(this.player.shieldHp, maxShield);
+    }
+    this.emitHUD();
+  }
+
   private createDefaultPlayer(): PlayerState {
     const w = 48;
     const h = 26;
+    this.upgrades = getShipUpgrades();
+    this.coins = getPlayerCoins();
+    const maxHp = 100 + this.upgrades.reinforcedHull * 25;
+    const speed = 340 + this.upgrades.hyperThrusters * 34;
+    const shieldTiers = [30, 55, 80, 110, 150];
+    const initialShield = this.upgrades.shieldGenerator > 0 ? shieldTiers[this.upgrades.shieldGenerator - 1] : 0;
+    this.timeSinceLastDamage = 0;
+
     return {
-      x: 60,
+      x: Math.max(70, this.safeLeftMargin + 24),
       y: (this.canvas.height || 400) * 0.5 - h * 0.5,
       width: w,
       height: h,
-      speed: 340,
-      hp: 100,
-      maxHp: 100,
+      speed,
+      hp: maxHp,
+      maxHp,
       lives: 3,
       weaponTier: 1,
       primaryWeapon: 'SINGLE_BLASTER',
       secondaryAmmo: 3,
       selectedSecondary: 'HOMING_MISSILES',
       invulnerableTime: 2.0,
-      shieldHp: 0,
+      shieldHp: initialShield,
       lastFireTime: 0,
       isShooting: false
     };
   }
 
-  private initStars() {
-    this.stars = [];
-    const count = 120;
+  private initNebulae() {
+    this.cosmicNebulae = [];
     const w = this.canvas.width || 800;
     const h = this.canvas.height || 450;
-    for (let i = 0; i < count; i++) {
-      const speed =
-        Math.random() < 0.6
-          ? 25 + Math.random() * 30
-          : Math.random() < 0.9
-          ? 70 + Math.random() * 40
-          : 140 + Math.random() * 60;
-      this.stars.push({
+    const isPink = this.theme === 'SAKURA_PINK';
+
+    // 4 atmospheric drifting cosmic nebula gas clouds
+    const nebulaCount = 4;
+    for (let i = 0; i < nebulaCount; i++) {
+      const x = (i / nebulaCount) * w + (Math.random() - 0.5) * (w / nebulaCount);
+      const y = Math.random() * h;
+      const radius = 170 + Math.random() * 150;
+      const baseSpeed = 7 + Math.random() * 10;
+
+      let colorCenter: string;
+      let colorEdge: string;
+
+      if (isPink) {
+        const palette = [
+          { c: 'rgba(244, 63, 94, 0.12)', e: 'rgba(244, 63, 94, 0)' },
+          { c: 'rgba(168, 85, 247, 0.10)', e: 'rgba(168, 85, 247, 0)' },
+          { c: 'rgba(244, 114, 182, 0.11)', e: 'rgba(244, 114, 182, 0)' },
+          { c: 'rgba(217, 70, 239, 0.08)', e: 'rgba(217, 70, 239, 0)' }
+        ];
+        const item = palette[i % palette.length];
+        colorCenter = item.c;
+        colorEdge = item.e;
+      } else {
+        const palette = [
+          { c: 'rgba(6, 182, 212, 0.09)', e: 'rgba(6, 182, 212, 0)' },
+          { c: 'rgba(59, 130, 246, 0.08)', e: 'rgba(59, 130, 246, 0)' },
+          { c: 'rgba(16, 185, 129, 0.08)', e: 'rgba(16, 185, 129, 0)' },
+          { c: 'rgba(99, 102, 241, 0.07)', e: 'rgba(99, 102, 241, 0)' }
+        ];
+        const item = palette[i % palette.length];
+        colorCenter = item.c;
+        colorEdge = item.e;
+      }
+
+      this.cosmicNebulae.push({
+        x,
+        y,
+        radius,
+        baseSpeed,
+        colorCenter,
+        colorEdge,
+        alpha: 1.0
+      });
+    }
+  }
+
+  private initStars() {
+    this.parallaxStars = [];
+    const w = this.canvas.width || 800;
+    const h = this.canvas.height || 450;
+    const isPink = this.theme === 'SAKURA_PINK';
+
+    // Layer 0: Deep background distant stars (75 stars) - Slow drift, soft glow, micro pinpoints
+    const layer0Count = 75;
+    for (let i = 0; i < layer0Count; i++) {
+      const baseSpeed = 16 + Math.random() * 20;
+      const baseAlpha = 0.25 + Math.random() * 0.35;
+      const color = isPink
+        ? Math.random() < 0.4
+          ? '#fbcfe8'
+          : Math.random() < 0.75
+          ? '#e0e7ff'
+          : '#f472b6'
+        : Math.random() < 0.4
+        ? '#a5f3fc'
+        : Math.random() < 0.75
+        ? '#e2e8f0'
+        : '#67e8f9';
+
+      this.parallaxStars.push({
         x: Math.random() * w,
         y: Math.random() * h,
-        speed,
-        size: speed > 100 ? 2 : speed > 50 ? 1.5 : 1,
-        alpha: 0.3 + Math.random() * 0.7
+        baseSpeed,
+        depth: 0.22,
+        layer: 0,
+        size: 0.8 + Math.random() * 0.5,
+        alpha: baseAlpha,
+        baseAlpha,
+        color,
+        twinkleSpeed: 1.5 + Math.random() * 3.0,
+        twinklePhase: Math.random() * Math.PI * 2,
+        shape: 'DOT'
+      });
+    }
+
+    // Layer 1: Mid-field cosmic belt stars (55 stars) - Moderate speed, sharp diamonds, crisp celestial color
+    const layer1Count = 55;
+    for (let i = 0; i < layer1Count; i++) {
+      const baseSpeed = 55 + Math.random() * 50;
+      const baseAlpha = 0.55 + Math.random() * 0.35;
+      const isDiamond = Math.random() < 0.4;
+      const color = isPink
+        ? Math.random() < 0.5
+          ? '#f472b6'
+          : Math.random() < 0.8
+          ? '#ffffff'
+          : '#fb7185'
+        : Math.random() < 0.5
+        ? '#22d3ee'
+        : Math.random() < 0.8
+        ? '#ffffff'
+        : '#38bdf8';
+
+      this.parallaxStars.push({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        baseSpeed,
+        depth: 0.65,
+        layer: 1,
+        size: 1.4 + Math.random() * 0.8,
+        alpha: baseAlpha,
+        baseAlpha,
+        color,
+        twinkleSpeed: 2.0 + Math.random() * 3.5,
+        twinklePhase: Math.random() * Math.PI * 2,
+        shape: isDiamond ? 'DIAMOND' : 'DOT'
+      });
+    }
+
+    // Layer 2: Near foreground velocity stardust (32 stars) - High speed, vibrant, stretch into velocity streaks
+    const layer2Count = 32;
+    for (let i = 0; i < layer2Count; i++) {
+      const baseSpeed = 135 + Math.random() * 115;
+      const baseAlpha = 0.8 + Math.random() * 0.2;
+      const color = isPink
+        ? Math.random() < 0.4
+          ? '#ffffff'
+          : Math.random() < 0.75
+          ? '#f43f5e'
+          : '#f472b6'
+        : Math.random() < 0.4
+        ? '#ffffff'
+        : Math.random() < 0.75
+        ? '#06b6d4'
+        : '#34d399';
+
+      this.parallaxStars.push({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        baseSpeed,
+        depth: 1.25,
+        layer: 2,
+        size: 2.2 + Math.random() * 1.3,
+        alpha: baseAlpha,
+        baseAlpha,
+        color,
+        twinkleSpeed: 3.5 + Math.random() * 4.0,
+        twinklePhase: Math.random() * Math.PI * 2,
+        shape: 'DOT'
       });
     }
   }
 
   public resize(width: number, height: number) {
+    if (width <= 0 || height <= 0) return;
+    const oldW = this.canvas.width;
+    const oldH = this.canvas.height;
     this.canvas.width = width;
     this.canvas.height = height;
+    this.updateSafeMargins();
+    this.initNebulae();
     this.initStars();
+
+    // Dynamically preserve player position when viewport shifts
+    if (this.player) {
+      if (oldH > 0 && oldH !== height) {
+        const relY = this.player.y / oldH;
+        this.player.y = relY * height;
+      }
+      this.player.x = Math.max(
+        this.safeLeftMargin,
+        Math.min(this.canvas.width - this.player.width - this.safeRightMargin, this.player.x)
+      );
+      this.player.y = Math.max(
+        this.safeTopMargin,
+        Math.min(this.canvas.height - this.player.height - this.safeBottomMargin, this.player.y)
+      );
+    }
   }
 
   private bindEvents() {
@@ -267,10 +589,15 @@ export class GameEngine {
       this.player.x += deltaX;
       this.player.y += deltaY;
 
-      // Clamp within screen bounds
-      const margin = 8;
-      this.player.x = Math.max(margin, Math.min(this.canvas.width - this.player.width - margin, this.player.x));
-      this.player.y = Math.max(margin, Math.min(this.canvas.height - this.player.height - margin, this.player.y));
+      // Clamp within safe margins (clearing phone cutouts and browser sidebars)
+      this.player.x = Math.max(
+        this.safeLeftMargin,
+        Math.min(this.canvas.width - this.player.width - this.safeRightMargin, this.player.x)
+      );
+      this.player.y = Math.max(
+        this.safeTopMargin,
+        Math.min(this.canvas.height - this.player.height - this.safeBottomMargin, this.player.y)
+      );
 
       this.lastTouchPos = { x: currentX, y: currentY };
     };
@@ -303,6 +630,8 @@ export class GameEngine {
     this.state = 'PLAYING';
     this.score = 0;
     this.combo = 0;
+    this.comboMultiplier = 1.0;
+    this.comboTimer = 0;
     this.stageTimer = 0;
     this.bossWarningTimer = 0;
     this.transitioningSector = false;
@@ -316,10 +645,24 @@ export class GameEngine {
       shotsHit: 0,
       accuracy: 100,
       bossesDefeated: 0,
-      playTimeSeconds: 0
+      playTimeSeconds: 0,
+      maxCombo: 0,
+      coinsCollected: 0,
+      mapId: this.selectedMapId
     };
 
+    this.sessionCoins = 0;
+    this.coins = getPlayerCoins();
+    this.upgrades = getShipUpgrades();
+    this.goldCoins = [];
+    recordMissionProgress('SORTIES', 1);
+
     this.player = this.createDefaultPlayer();
+    this.lastPlayerX = this.player.x;
+    this.lastPlayerY = this.player.y;
+    this.playerVelocity = { vx: 0, vy: 0 };
+    this.initNebulae();
+    this.initStars();
     this.projectiles = [];
     this.enemies = [];
     this.boss = null;
@@ -551,18 +894,53 @@ export class GameEngine {
       if (this.shakeIntensity < 0.2) this.shakeIntensity = 0;
     }
 
+    // Update Combo Decay Timer
+    if (this.combo > 0) {
+      this.comboTimer -= dt;
+      if (this.comboTimer <= 0) {
+        if (this.combo >= 15) {
+          this.addFloatingText('COMBO EXPIRED', this.player.x, this.player.y - 12, '#94a3b8', 12);
+        }
+        this.combo = 0;
+        this.comboMultiplier = 1.0;
+        this.comboTimer = 0;
+      }
+    }
+
     // 1. Update Player
     this.updatePlayer(dt, timestamp);
 
-    // 2. Update Starfield
-    const starSpeedMult = this.transitioningSector ? 6.5 : 1.0;
-    for (const star of this.stars) {
-      star.x -= star.speed * starSpeedMult * dt;
-      if (star.x < 0) {
-        star.x = this.canvas.width + 10;
-        star.y = Math.random() * this.canvas.height;
+    // Shield Auto-Recharge (Kinetic Deflector Upgrade)
+    this.timeSinceLastDamage += dt;
+    if (this.upgrades.shieldGenerator > 0) {
+      const shieldTiers = [30, 55, 80, 110, 150];
+      const maxShield = shieldTiers[this.upgrades.shieldGenerator - 1];
+      const rechargeDelay = Math.max(2.0, 4.5 - this.upgrades.shieldGenerator * 0.4);
+      if (this.timeSinceLastDamage > rechargeDelay && this.player.shieldHp < maxShield) {
+        this.player.shieldHp = Math.min(maxShield, this.player.shieldHp + 22 * dt);
       }
     }
+
+    // Horizontal Map Background Scrolling (Continuous world coordinate)
+    const mapBaseSpeed = 42 * this.getStageSpeedMultiplier();
+    const warpMult = this.transitioningSector ? 6.0 : 1.0;
+    this.mapScrollX += (mapBaseSpeed + Math.max(-20, this.playerVelocity.vx * 0.15)) * warpMult * dt;
+    if (this.mapScrollX > 10000000) {
+      this.mapScrollX = this.mapScrollX % 200000;
+    }
+    if (this.mapScrollX < 0) this.mapScrollX = 0;
+
+    // Track smoothed player movement velocity across all input modes (keys, touch drag, D-pad)
+    const rawVx = dt > 0 ? (this.player.x - this.lastPlayerX) / dt : 0;
+    const rawVy = dt > 0 ? (this.player.y - this.lastPlayerY) / dt : 0;
+    const smooth = Math.min(1, dt * 10);
+    this.playerVelocity.vx += (rawVx - this.playerVelocity.vx) * smooth;
+    this.playerVelocity.vy += (rawVy - this.playerVelocity.vy) * smooth;
+    this.lastPlayerX = this.player.x;
+    this.lastPlayerY = this.player.y;
+
+    // 2. Update Parallax Starfield & Cosmic Nebulae
+    this.updateStarfield(dt);
 
     // 3. Handle Automatic Sector Transition Sequence
     if (this.transitioningSector) {
@@ -577,6 +955,7 @@ export class GameEngine {
         this.nextEnemySpawn = 0.5;
         this.projectiles = [];
         this.enemies = [];
+        this.initNebulae();
 
         soundEngine.powerUp();
         this.addFloatingText(
@@ -605,6 +984,9 @@ export class GameEngine {
     // 7. Update PowerUps
     this.updatePowerUps(dt);
 
+    // 7b. Update Gold Coins
+    this.updateGoldCoins(dt);
+
     // 8. Collisions & Combat
     this.checkCollisions();
 
@@ -613,6 +995,97 @@ export class GameEngine {
 
     // Emit HUD Updates
     this.emitHUD();
+  }
+
+  /**
+   * Calculates velocity multiplier based on current campaign sector / endless mode survival.
+   * Enhances sense of velocity as the ship pushes deeper into alien territory.
+   */
+  public getStageSpeedMultiplier(): number {
+    if (this.mode === 'ENDLESS') {
+      const timeBonus = Math.min(1.2, (this.stageTimer / 60) * 0.35);
+      const killBonus = Math.min(0.8, (this.stats.enemiesKilled / 75) * 0.3);
+      return 1.0 + timeBonus + killBonus;
+    }
+
+    switch (this.currentStageIndex) {
+      case 1:
+        return 1.0; // Sector 1: Orbital Defense - Standard cruising speed
+      case 2:
+        return 1.25; // Sector 2: Mecha Fortress - High-speed breach
+      case 3:
+        return 1.55; // Sector 3: Asteroid Minefield - Rapid tactical maneuvering
+      case 4:
+        return 1.85; // Sector 4: Bio-Alien Nest - Infiltration through hostile swarms
+      case 5:
+        return 2.25; // Sector 5: Alien Overmind - Terminal velocity assault
+      default:
+        return 1.0 + Math.min(1.5, (this.currentStageIndex - 1) * 0.3);
+    }
+  }
+
+  /**
+   * Updates multi-layered parallax starfield and cosmic nebulae.
+   * Shifts speed based on player movement vector (forward boost, braking, vertical counter-drift)
+   * and current campaign sector / endless progression.
+   */
+  private updateStarfield(dt: number) {
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    const stageMult = this.getStageSpeedMultiplier();
+    const warpMult = this.transitioningSector ? 8.0 : 1.0;
+
+    // Normalized player movement influence
+    // Forward movement (vx > 0) boosts star speed; backward (vx < 0) reduces it
+    const forwardRatio = Math.max(-0.6, Math.min(1.2, this.playerVelocity.vx / (this.player.speed || 340)));
+    // Vertical movement (vy) induces subtle counter-drift across parallax depth
+    const verticalRatio = Math.max(-1.0, Math.min(1.0, this.playerVelocity.vy / (this.player.speed || 340)));
+
+    // 1. Update Cosmic Nebulae (Deep ambient background layer)
+    for (const neb of this.cosmicNebulae) {
+      const nebMoveMult = Math.max(0.3, 1.0 + forwardRatio * 0.2);
+      const nebSpeed = neb.baseSpeed * stageMult * nebMoveMult * warpMult;
+      neb.x -= nebSpeed * dt;
+      neb.y += (-verticalRatio * 10) * dt;
+
+      if (neb.x < -neb.radius) {
+        neb.x = w + neb.radius + Math.random() * 60;
+        neb.y = Math.random() * h;
+      }
+    }
+
+    // 2. Update Parallax Stars (Multi-layer depth with responsive velocity)
+    for (const star of this.parallaxStars) {
+      // Movement boost scales with layer depth (foreground stars react much stronger)
+      const moveMult = Math.max(0.15, 1.0 + forwardRatio * (0.35 + star.depth * 0.65));
+      const currentSpeed = star.baseSpeed * stageMult * moveMult * warpMult;
+
+      star.x -= currentSpeed * dt;
+
+      // Vertical 2.5D parallax drift
+      const vertShift = -verticalRatio * (star.depth * 52) * dt;
+      star.y += vertShift;
+
+      // Horizontal wrapping
+      if (star.x < -40) {
+        star.x = w + 10 + Math.random() * 20;
+        star.y = Math.random() * h;
+      } else if (star.x > w + 45) {
+        star.x = -15;
+        star.y = Math.random() * h;
+      }
+
+      // Vertical wrapping
+      if (star.y < -20) {
+        star.y = h + 10;
+      } else if (star.y > h + 20) {
+        star.y = -10;
+      }
+
+      // Dynamic twinkle pulse
+      star.twinklePhase += star.twinkleSpeed * dt;
+      star.alpha = Math.max(0.1, Math.min(1.0, star.baseAlpha * (0.75 + 0.25 * Math.sin(star.twinklePhase))));
+    }
   }
 
   private updatePlayer(dt: number, timestamp: number) {
@@ -644,9 +1117,14 @@ export class GameEngine {
     p.x += dx * p.speed * dt;
     p.y += dy * p.speed * dt;
 
-    const margin = 8;
-    p.x = Math.max(margin, Math.min(this.canvas.width - p.width - margin, p.x));
-    p.y = Math.max(margin, Math.min(this.canvas.height - p.height - margin, p.y));
+    p.x = Math.max(
+      this.safeLeftMargin,
+      Math.min(this.canvas.width - p.width - this.safeRightMargin, p.x)
+    );
+    p.y = Math.max(
+      this.safeTopMargin,
+      Math.min(this.canvas.height - p.height - this.safeBottomMargin, p.y)
+    );
 
     const isPressingShoot =
       this.keys['Space'] ||
@@ -668,6 +1146,7 @@ export class GameEngine {
 
   private firePrimary(p: PlayerState) {
     this.stats.shotsFired++;
+    const blasterMult = 1 + (this.upgrades.blasterPower || 0) * 0.22;
 
     if (p.weaponTier === 1) {
       soundEngine.laser();
@@ -678,7 +1157,7 @@ export class GameEngine {
         vx: 750,
         vy: 0,
         radius: 4,
-        damage: 28,
+        damage: Math.round(28 * blasterMult),
         isPlayer: true,
         type: 'BULLET',
         lifeTime: 0
@@ -692,7 +1171,7 @@ export class GameEngine {
         vx: 800,
         vy: 0,
         radius: 4,
-        damage: 26,
+        damage: Math.round(26 * blasterMult),
         isPlayer: true,
         type: 'BULLET',
         lifeTime: 0
@@ -704,7 +1183,7 @@ export class GameEngine {
         vx: 800,
         vy: 0,
         radius: 4,
-        damage: 26,
+        damage: Math.round(26 * blasterMult),
         isPlayer: true,
         type: 'BULLET',
         lifeTime: 0
@@ -718,7 +1197,7 @@ export class GameEngine {
         vx: 800,
         vy: 0,
         radius: 5,
-        damage: 28,
+        damage: Math.round(28 * blasterMult),
         isPlayer: true,
         type: 'BULLET',
         lifeTime: 0
@@ -730,7 +1209,7 @@ export class GameEngine {
         vx: 750,
         vy: -150,
         radius: 4,
-        damage: 22,
+        damage: Math.round(22 * blasterMult),
         isPlayer: true,
         type: 'BULLET',
         lifeTime: 0
@@ -742,7 +1221,7 @@ export class GameEngine {
         vx: 750,
         vy: 150,
         radius: 4,
-        damage: 22,
+        damage: Math.round(22 * blasterMult),
         isPlayer: true,
         type: 'BULLET',
         lifeTime: 0
@@ -756,7 +1235,7 @@ export class GameEngine {
         vx: 950,
         vy: 0,
         radius: 6,
-        damage: 42,
+        damage: Math.round(42 * blasterMult),
         isPlayer: true,
         type: 'LASER_BEAM',
         penetrating: true,
@@ -904,6 +1383,10 @@ export class GameEngine {
       speed = Math.min(320, speed * Math.min(1.5, scale));
     }
 
+    const mapCfg = getMapConfig(this.selectedMapId);
+    hp = Math.round(hp * mapCfg.enemyHpMod);
+    speed = Math.round(speed * mapCfg.enemySpeedMod);
+
     this.enemies.push({
       id: Math.random().toString(),
       type,
@@ -927,6 +1410,8 @@ export class GameEngine {
 
   private spawnBoss() {
     const stage = this.stageConfig;
+    const mapCfg = getMapConfig(this.selectedMapId);
+    const bossHp = Math.round(stage.bossHp * mapCfg.enemyHpMod);
     this.boss = {
       id: 'boss_' + stage.stageNumber,
       type: stage.bossType,
@@ -935,8 +1420,8 @@ export class GameEngine {
       y: this.canvas.height * 0.5 - 75,
       width: 140,
       height: 150,
-      hp: stage.bossHp,
-      maxHp: stage.bossHp,
+      hp: bossHp,
+      maxHp: bossHp,
       phase: 1,
       age: 0,
       attackTimer: 0,
@@ -955,7 +1440,8 @@ export class GameEngine {
       'OVERMIND_CORE'
     ];
     const type = bossTypes[this.stats.bossesDefeated % bossTypes.length];
-    const hp = 800 + this.stats.bossesDefeated * 450;
+    const mapCfg = getMapConfig(this.selectedMapId);
+    const hp = Math.round((800 + this.stats.bossesDefeated * 450) * mapCfg.enemyHpMod);
     this.boss = {
       id: 'boss_endless_' + this.stats.bossesDefeated,
       type,
@@ -1144,7 +1630,8 @@ export class GameEngine {
     b.attackTimer += dt;
     if (b.hitFlashTime > 0) b.hitFlashTime -= dt;
 
-    if (b.x > this.canvas.width - b.width - 30) {
+    const bossTargetX = this.canvas.width - b.width - Math.max(32, this.safeRightMargin + 12);
+    if (b.x > bossTargetX) {
       b.x -= 120 * dt;
       return;
     }
@@ -1306,6 +1793,93 @@ export class GameEngine {
     }
   }
 
+  public spawnCoins(x: number, y: number, count: number = 1) {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 40 + Math.random() * 95;
+      this.goldCoins.push({
+        id: Math.random().toString(),
+        x,
+        y,
+        vx: Math.cos(angle) * speed - 25,
+        vy: Math.sin(angle) * speed,
+        value: 1,
+        radius: 9,
+        age: 0,
+        rotation: Math.random() * Math.PI * 2
+      });
+    }
+  }
+
+  private updateGoldCoins(dt: number) {
+    const p = this.player;
+    if (!p) return;
+    const magnetTiers = [100, 160, 230, 310, 420];
+    const magnetRadius = this.upgrades.magnetTurbine > 0 ? magnetTiers[this.upgrades.magnetTurbine - 1] : 45;
+    const playerCenterX = p.x + p.width * 0.5;
+    const playerCenterY = p.y + p.height * 0.5;
+
+    for (let i = this.goldCoins.length - 1; i >= 0; i--) {
+      const c = this.goldCoins[i];
+      if (!c) continue;
+      c.age += dt;
+      c.rotation += 4.5 * dt;
+
+      const dx = playerCenterX - c.x;
+      const dy = playerCenterY - c.y;
+      const dist = Math.hypot(dx, dy);
+
+      // Magnet attraction
+      if (dist < magnetRadius && dist > 1) {
+        const pullFactor = Math.min(650, 260 + (1 - dist / magnetRadius) * 450);
+        c.vx += (dx / dist) * pullFactor * dt;
+        c.vy += (dy / dist) * pullFactor * dt;
+      } else {
+        c.vx = (c.vx - 35 * dt) * 0.98;
+        c.vy *= 0.98;
+      }
+
+      c.x += c.vx * dt;
+      c.y += c.vy * dt;
+
+      // Pickup collision with player
+      if (dist < c.radius + p.width * 0.45) {
+        soundEngine.coin();
+        this.sessionCoins += c.value;
+        this.coins = addPlayerCoins(c.value);
+        this.stats.coinsCollected += c.value;
+        recordMissionProgress('COINS', c.value);
+
+        this.addFloatingText('+' + c.value + ' COIN', c.x, c.y - 10, '#facc15', 12);
+
+        // Gold sparkles
+        for (let sp = 0; sp < 6; sp++) {
+          const sAngle = Math.random() * Math.PI * 2;
+          const sSpeed = 30 + Math.random() * 60;
+          this.particles.push({
+            x: c.x,
+            y: c.y,
+            vx: Math.cos(sAngle) * sSpeed,
+            vy: Math.sin(sAngle) * sSpeed,
+            size: 2,
+            color: Math.random() < 0.5 ? '#fef08a' : '#f59e0b',
+            life: 0.25,
+            maxLife: 0.25,
+            shape: 'SPARK'
+          });
+        }
+
+        this.goldCoins.splice(i, 1);
+        continue;
+      }
+
+      // Despawn offscreen
+      if (c.x < -40 || c.age > 16) {
+        this.goldCoins.splice(i, 1);
+      }
+    }
+  }
+
   // --- Collision Detection & Combat Resolution ---
 
   private checkCollisions() {
@@ -1330,6 +1904,7 @@ export class GameEngine {
         ) {
           hit = true;
           this.stats.shotsHit++;
+          this.registerComboHit();
           b.hp -= proj.damage;
           b.hitFlashTime = 0.08;
           soundEngine.hitEnemy();
@@ -1356,6 +1931,7 @@ export class GameEngine {
           ) {
             hit = true;
             this.stats.shotsHit++;
+            this.registerComboHit();
             e.hp -= proj.damage;
             e.hitFlashTime = 0.08;
             soundEngine.hitEnemy();
@@ -1432,12 +2008,72 @@ export class GameEngine {
     }
   }
 
+  /**
+   * Calculates combo multiplier based on consecutive hits without taking damage.
+   * Progression tiers:
+   * 0 - 4 hits: 1.0x (Standard)
+   * 5 - 11 hits: 1.5x (Cadet Streak)
+   * 12 - 21 hits: 2.0x (Ace Pilot)
+   * 22 - 34 hits: 2.5x (Sharpshooter)
+   * 35 - 51 hits: 3.0x (Hyper Destroyer)
+   * 52 - 74 hits: 4.0x (Apex Predator)
+   * 75+ hits: 5.0x (MAX MULTIPLIER)
+   */
+  public calculateMultiplier(hits: number): number {
+    if (hits < 5) return 1.0;
+    if (hits < 12) return 1.5;
+    if (hits < 22) return 2.0;
+    if (hits < 35) return 2.5;
+    if (hits < 52) return 3.0;
+    if (hits < 75) return 4.0;
+    return 5.0;
+  }
+
+  public registerComboHit() {
+    const oldMult = this.comboMultiplier;
+    this.combo++;
+    recordMissionProgress('COMBO', this.combo);
+    if (this.combo > this.stats.maxCombo) {
+      this.stats.maxCombo = this.combo;
+    }
+    this.comboTimer = this.maxComboTimer;
+
+    const newMult = this.calculateMultiplier(this.combo);
+    if (newMult > oldMult) {
+      this.comboMultiplier = newMult;
+      soundEngine.comboUp(newMult);
+      this.shakeIntensity = Math.min(24, this.shakeIntensity + 3);
+      const isPink = this.theme === 'SAKURA_PINK';
+      const label = newMult >= 5.0 ? 'MAX COMBO x5.0!' : `COMBO x${newMult.toFixed(1)}!`;
+      this.addFloatingText(
+        label,
+        this.player.x + 24,
+        this.player.y - 18,
+        isPink ? '#f472b6' : newMult >= 5.0 ? '#fbbf24' : '#38bdf8',
+        newMult >= 5.0 ? 18 : 14
+      );
+    }
+  }
+
   private damagePlayer(amount: number) {
     const p = this.player;
     soundEngine.playerHit();
     this.shakeIntensity = 22;
     this.hitStopTimer = 0.05;
+    this.timeSinceLastDamage = 0;
+
+    // Apply Nanite Hull Plating defense reduction
+    const defBonus = Math.min(0.25, (this.upgrades.reinforcedHull || 0) * 0.05);
+    amount = Math.max(1, Math.round(amount * (1 - defBonus)));
+
+    // Reset combo streak on taking any hit/damage
+    if (this.combo >= 5) {
+      soundEngine.comboBreak();
+      this.addFloatingText('COMBO BROKEN!', p.x, p.y - 18, '#ef4444', 14);
+    }
     this.combo = 0;
+    this.comboMultiplier = 1.0;
+    this.comboTimer = 0;
 
     if (p.shieldHp > 0) {
       if (p.shieldHp >= amount) {
@@ -1473,10 +2109,12 @@ export class GameEngine {
   private handleEnemyDefeated(e: Enemy, index: number) {
     this.enemies.splice(index, 1);
     this.stats.enemiesKilled++;
-    this.combo++;
+    recordMissionProgress('KILLS', 1);
 
-    const comboMult = Math.min(3.0, 1.0 + (this.combo - 1) * 0.1);
-    const earnedScore = Math.round(e.scoreValue * comboMult);
+    const mapCfg = getMapConfig(this.selectedMapId);
+
+    // Score scaled by combo multiplier and map difficulty multiplier
+    const earnedScore = Math.round(e.scoreValue * this.comboMultiplier * mapCfg.multiplier);
     this.score += earnedScore;
 
     soundEngine.explosion();
@@ -1488,7 +2126,17 @@ export class GameEngine {
       isHeavy ? 20 : 12,
       isHeavy
     );
-    this.addFloatingText('+' + earnedScore, e.x, e.y, this.theme === 'SAKURA_PINK' ? '#fb7185' : '#f59e0b', 12);
+    const scoreText =
+      this.comboMultiplier > 1
+        ? `+${earnedScore} (x${this.comboMultiplier.toFixed(1)})`
+        : `+${earnedScore}`;
+    this.addFloatingText(scoreText, e.x, e.y, this.theme === 'SAKURA_PINK' ? '#fb7185' : '#f59e0b', 12);
+
+    // Gold Coin Drops based on Map drop rate
+    if (Math.random() < mapCfg.coinDropRate) {
+      const coinCount = e.type === 'CRUISER' ? 3 : e.type === 'TURRET' ? 2 : 1;
+      this.spawnCoins(e.x + e.width * 0.5, e.y + e.height * 0.5, coinCount);
+    }
 
     if (Math.random() < 0.18 || e.type === 'CRUISER') {
       this.dropPowerUp(e.x + e.width * 0.5, e.y + e.height * 0.5);
@@ -1543,17 +2191,27 @@ export class GameEngine {
         this.addFloatingText('EXTRA SHIP +1', pu.x, pu.y, '#10b981', 18);
         break;
 
-      case 'SCORE_GEM':
-        this.score += 750;
-        this.addFloatingText('+750 BONUS', pu.x, pu.y, isPink ? '#fb7185' : '#ec4899', 16);
+      case 'SCORE_GEM': {
+        const gemScore = Math.round(750 * this.comboMultiplier);
+        this.score += gemScore;
+        const gemText =
+          this.comboMultiplier > 1
+            ? `+${gemScore} (x${this.comboMultiplier.toFixed(1)})`
+            : `+${gemScore} BONUS`;
+        this.addFloatingText(gemText, pu.x, pu.y, isPink ? '#fb7185' : '#ec4899', 16);
         break;
+      }
     }
   }
 
   private handleBossDefeated(b: Boss) {
     this.boss = null;
     this.stats.bossesDefeated++;
-    this.score += 5000;
+    recordMissionProgress('BOSS', 1);
+
+    const mapCfg = getMapConfig(this.selectedMapId);
+    const bossScore = Math.round(5000 * Math.min(3.0, this.comboMultiplier) * mapCfg.multiplier);
+    this.score += bossScore;
     this.shakeIntensity = 38;
     this.hitStopTimer = 0.12;
     soundEngine.bossExplosion();
@@ -1575,12 +2233,15 @@ export class GameEngine {
     }
 
     this.addFloatingText(
-      'BOSS DESTROYED! +5000',
+      `BOSS DESTROYED! +${bossScore}`,
       b.x + b.width * 0.5,
       b.y + b.height * 0.5,
       this.theme === 'SAKURA_PINK' ? '#f472b6' : '#10b981',
       26
     );
+
+    // Large Gold Coin cache drop from Boss
+    this.spawnCoins(b.x + b.width * 0.5, b.y + b.height * 0.5, 14);
     this.dropPowerUp(b.x + b.width * 0.5, b.y + b.height * 0.5);
 
     if (this.mode === 'CAMPAIGN') {
@@ -1796,11 +2457,90 @@ export class GameEngine {
     ctx.fillStyle = isPink ? '#0e0614' : this.stageConfig.backgroundHue || '#050811';
     ctx.fillRect(0, 0, w, h);
 
-    // Subtle cyber grid
-    ctx.strokeStyle = isPink ? 'rgba(244, 114, 182, 0.04)' : 'rgba(255, 255, 255, 0.025)';
+    // 1b. Seamless Horizontal Parallax Background Map (Mirrored Ping-Pong Tiling + Crossfade Blend)
+    const mapImg = this.mapImages[this.selectedMapId];
+    if (mapImg && mapImg.complete && mapImg.naturalWidth > 0) {
+      ctx.save();
+
+      // Maintain aspect ratio while ensuring the tile covers vertical height
+      const naturalAspect = mapImg.naturalWidth / Math.max(1, mapImg.naturalHeight);
+      const tileWidth = Math.max(w, Math.round(h * naturalAspect));
+      const tileHeight = h;
+
+      // Ping-pong cycle: Tile 0 = Normal, Tile 1 = Mirrored (Horizontal Flip)
+      // Cycle length = 2 * tileWidth
+      const cycleLength = tileWidth * 2;
+      const normalizedScroll = ((this.mapScrollX % cycleLength) + cycleLength) % cycleLength;
+
+      // Find the leftmost tile that intersects the screen
+      const startTileNumber = Math.floor((normalizedScroll) / tileWidth);
+      const firstTileX = -((normalizedScroll) % tileWidth);
+
+      // Render all tiles required to cover screen width with safety margins
+      for (let tx = firstTileX, tNum = startTileNumber; tx < w + 20; tx += tileWidth, tNum++) {
+        const isMirrored = Math.abs(tNum) % 2 === 1;
+
+        ctx.save();
+        if (isMirrored) {
+          // Mirror horizontally so the left edge matches the previous tile's right edge exactly
+          ctx.translate(tx + tileWidth, 0);
+          ctx.scale(-1, 1);
+          ctx.drawImage(mapImg, 0, 0, tileWidth, tileHeight);
+        } else {
+          ctx.drawImage(mapImg, tx, 0, tileWidth, tileHeight);
+        }
+        ctx.restore();
+
+        // Seam junction feathering: Softens any high-contrast star or cloud clusters right at the fold
+        if (tx > -80 && tx < w + 80) {
+          const blendHalfW = 42;
+          const blendGrad = ctx.createLinearGradient(tx - blendHalfW, 0, tx + blendHalfW, 0);
+          blendGrad.addColorStop(0, 'rgba(3, 5, 14, 0)');
+          blendGrad.addColorStop(0.5, 'rgba(4, 7, 18, 0.28)');
+          blendGrad.addColorStop(1, 'rgba(3, 5, 14, 0)');
+          ctx.fillStyle = blendGrad;
+          ctx.fillRect(tx - blendHalfW, 0, blendHalfW * 2, tileHeight);
+        }
+      }
+
+      // Environmental map atmospheric tint
+      if (this.selectedMapId === 'TOXIC_BELT') {
+        ctx.fillStyle = 'rgba(6, 78, 59, 0.20)';
+        ctx.fillRect(0, 0, w, h);
+      } else if (this.selectedMapId === 'SINGULARITY_ABYSS') {
+        ctx.fillStyle = 'rgba(46, 16, 101, 0.24)';
+        ctx.fillRect(0, 0, w, h);
+      } else {
+        ctx.fillStyle = 'rgba(12, 74, 110, 0.15)';
+        ctx.fillRect(0, 0, w, h);
+      }
+      ctx.restore();
+    }
+
+    // 2. Cosmic Nebulae (Deep Parallax Layer)
+    for (const neb of this.cosmicNebulae) {
+      const grad = ctx.createRadialGradient(
+        neb.x, neb.y, neb.radius * 0.05,
+        neb.x, neb.y, neb.radius
+      );
+      grad.addColorStop(0, neb.colorCenter);
+      grad.addColorStop(0.65, neb.colorCenter.replace(/[\d\.]+\)$/, '0.03)'));
+      grad.addColorStop(1, neb.colorEdge);
+
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(neb.x, neb.y, neb.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 3. Subtle cyber grid (with gentle velocity scrolling)
+    const stageSpeedMult = this.getStageSpeedMultiplier();
+    const gridOffsetX = (timestamp * 0.02 * stageSpeedMult) % 48;
+    ctx.strokeStyle = isPink ? 'rgba(244, 114, 182, 0.035)' : 'rgba(255, 255, 255, 0.02)';
     ctx.lineWidth = 1;
     const gridSize = 48;
-    for (let x = 0; x < w; x += gridSize) {
+    for (let x = -gridOffsetX; x < w + gridSize; x += gridSize) {
+      if (x < 0) continue;
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, h);
@@ -1813,28 +2553,159 @@ export class GameEngine {
       ctx.stroke();
     }
 
-    // 2. Parallax Starfield & Hyperspace Trails
-    if (this.transitioningSector) {
-      ctx.strokeStyle = isPink ? 'rgba(244, 114, 182, 0.8)' : 'rgba(34, 211, 238, 0.6)';
-      ctx.lineWidth = 2;
-      for (const star of this.stars) {
+    // Subtle tactical safe bounds markers for mobile / Android screens
+    if (this.safeFitMode && (this.safeLeftMargin > 20 || this.safeRightMargin > 20)) {
+      const sl = this.safeLeftMargin;
+      const sr = w - this.safeRightMargin;
+      const st = this.safeTopMargin;
+      const sb = h - this.safeBottomMargin;
+      const bLen = 14;
+
+      ctx.save();
+      ctx.strokeStyle = isPink ? 'rgba(244, 114, 182, 0.25)' : 'rgba(6, 182, 212, 0.22)';
+      ctx.lineWidth = 1.5;
+
+      // Top-Left corner
+      ctx.beginPath();
+      ctx.moveTo(sl + bLen, st);
+      ctx.lineTo(sl, st);
+      ctx.lineTo(sl, st + bLen);
+      ctx.stroke();
+
+      // Bottom-Left corner
+      ctx.beginPath();
+      ctx.moveTo(sl + bLen, sb);
+      ctx.lineTo(sl, sb);
+      ctx.lineTo(sl, sb - bLen);
+      ctx.stroke();
+
+      // Top-Right corner
+      ctx.beginPath();
+      ctx.moveTo(sr - bLen, st);
+      ctx.lineTo(sr, st);
+      ctx.lineTo(sr, st + bLen);
+      ctx.stroke();
+
+      // Bottom-Right corner
+      ctx.beginPath();
+      ctx.moveTo(sr - bLen, sb);
+      ctx.lineTo(sr, sb);
+      ctx.lineTo(sr, sb - bLen);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    // 4. Multi-Layer Parallax Starfield & Velocity Streaks
+    const warpActive = this.transitioningSector;
+    const forwardRatio = Math.max(0, this.playerVelocity.vx / (this.player.speed || 340));
+
+    for (const star of this.parallaxStars) {
+      const moveMult = Math.max(0.15, 1.0 + (this.playerVelocity.vx / (this.player.speed || 340)) * (0.35 + star.depth * 0.65));
+      const currentSpeed = star.baseSpeed * stageSpeedMult * moveMult;
+
+      // Calculate velocity stretch length
+      let streakLength = 0;
+      if (warpActive) {
+        streakLength = Math.max(30, star.baseSpeed * 0.95);
+      } else if (star.layer === 2) {
+        // Foreground stars stretch into high-speed streaks
+        const velocityFactor = (currentSpeed / 130) * (1.0 + forwardRatio * 0.9);
+        if (velocityFactor > 0.85) {
+          streakLength = Math.max(star.size * 1.5, star.size * velocityFactor * 2.2);
+        }
+      } else if (star.layer === 1 && (currentSpeed > 120 || forwardRatio > 0.45)) {
+        streakLength = Math.max(star.size * 1.3, star.size * 1.8);
+      }
+
+      if (streakLength > star.size * 1.25) {
+        // High-velocity streak line
+        ctx.strokeStyle = warpActive
+          ? isPink
+            ? 'rgba(244, 114, 182, 0.85)'
+            : 'rgba(34, 211, 238, 0.75)'
+          : star.color;
+        ctx.globalAlpha = Math.min(1.0, star.alpha * (warpActive ? 1.0 : 0.9));
+        ctx.lineWidth = Math.max(1, star.size * (warpActive ? 0.9 : 0.8));
+        ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.moveTo(star.x, star.y);
-        ctx.lineTo(star.x + star.speed * 0.8, star.y);
+        ctx.lineTo(star.x + streakLength, star.y);
         ctx.stroke();
-      }
-    } else {
-      for (const star of this.stars) {
-        ctx.fillStyle = isPink
-          ? `rgba(254, 205, 211, ${star.alpha})`
-          : `rgba(255, 255, 255, ${star.alpha})`;
-        ctx.fillRect(star.x, star.y, star.size, star.size);
+        ctx.lineCap = 'butt';
+      } else {
+        // Sharp star point / diamond
+        ctx.fillStyle = star.color;
+        ctx.globalAlpha = star.alpha;
+        if (star.shape === 'DIAMOND' && star.size >= 1.6) {
+          const s = star.size * 1.15;
+          ctx.beginPath();
+          ctx.moveTo(star.x, star.y - s);
+          ctx.lineTo(star.x + s, star.y);
+          ctx.lineTo(star.x, star.y + s);
+          ctx.lineTo(star.x - s, star.y);
+          ctx.closePath();
+          ctx.fill();
+        } else {
+          ctx.fillRect(star.x, star.y, star.size, star.size);
+        }
       }
     }
+    ctx.globalAlpha = 1.0;
 
     // 3. Power-ups
     for (const pu of this.powerUps) {
       if (pu) drawPowerUp(ctx, pu, timestamp);
+    }
+
+    // 3b. Floating Gold Coins (Gleaming 3D Rotating Medallions)
+    for (const c of this.goldCoins) {
+      if (!c) continue;
+      ctx.save();
+      ctx.translate(c.x, c.y);
+
+      const rotScale = Math.cos(c.rotation);
+      ctx.scale(Math.abs(rotScale) < 0.1 ? 0.1 : rotScale, 1);
+
+      // Radial Gold Aura
+      const aura = ctx.createRadialGradient(0, 0, 2, 0, 0, c.radius * 1.6);
+      aura.addColorStop(0, 'rgba(250, 204, 21, 0.45)');
+      aura.addColorStop(1, 'rgba(234, 179, 8, 0)');
+      ctx.fillStyle = aura;
+      ctx.beginPath();
+      ctx.arc(0, 0, c.radius * 1.6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Coin disc
+      const coinGrad = ctx.createLinearGradient(-c.radius, -c.radius, c.radius, c.radius);
+      coinGrad.addColorStop(0, '#fef08a');
+      coinGrad.addColorStop(0.45, '#eab308');
+      coinGrad.addColorStop(1, '#a16207');
+      ctx.fillStyle = coinGrad;
+      ctx.beginPath();
+      ctx.arc(0, 0, c.radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Outer bezel ring
+      ctx.strokeStyle = '#ca8a04';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Inner ridge ring
+      ctx.strokeStyle = '#fef9c3';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.arc(0, 0, c.radius * 0.65, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Dollar / Credit symbol
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 8px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('$', 0, 1);
+
+      ctx.restore();
     }
 
     // 4. Enemies
@@ -1852,9 +2723,34 @@ export class GameEngine {
       if (proj) drawProjectile(ctx, proj, this.theme);
     }
 
-    // 7. Player Ship
+    // 7. Player Ship & Kinetic Shield Bubble
     if (this.state === 'PLAYING' || this.state === 'PAUSED') {
       drawPlayerShip(ctx, this.player, timestamp, this.theme);
+
+      // Kinetic Shield Deflector Bubble
+      if (this.player.shieldHp > 0) {
+        ctx.save();
+        const p = this.player;
+        const shieldRatio = Math.min(1.0, p.shieldHp / 80);
+        ctx.strokeStyle = isPink
+          ? `rgba(244, 114, 182, ${0.4 + 0.35 * shieldRatio})`
+          : `rgba(56, 189, 248, ${0.4 + 0.35 * shieldRatio})`;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = isPink ? '#f472b6' : '#38bdf8';
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.ellipse(
+          p.x + p.width * 0.45,
+          p.y + p.height * 0.5,
+          p.width * 0.75,
+          p.height * 0.9,
+          0,
+          0,
+          Math.PI * 2
+        );
+        ctx.stroke();
+        ctx.restore();
+      }
     }
 
     // 8. Enhanced Particle Destroy Effects (Rings, Spark Streaks, Shards)
@@ -1981,6 +2877,9 @@ export class GameEngine {
       lives: this.player.lives,
       score: this.score,
       highScore: this.highScore,
+      coins: this.coins,
+      sessionCoins: this.sessionCoins,
+      currentMapId: this.selectedMapId,
       stage: this.currentStageIndex,
       mode: this.mode,
       weaponTier: this.player.weaponTier,
@@ -1996,11 +2895,15 @@ export class GameEngine {
           }
         : null,
       combo: this.combo,
+      comboMultiplier: this.comboMultiplier,
+      comboTimerRatio:
+        this.maxComboTimer > 0 ? Math.max(0, Math.min(1, this.comboTimer / this.maxComboTimer)) : 0,
       transitioningSector: this.transitioningSector,
       transitionNextStage: this.transitionNextStage,
       autoFire: this.autoFire,
       touchControlsActive: this.touchControlsActive,
-      theme: this.theme
+      theme: this.theme,
+      safeFitMode: this.safeFitMode
     });
   }
 }
