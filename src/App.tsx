@@ -124,15 +124,47 @@ export default function App() {
     };
   }, [selectedMapId]);
 
-  const handleToggleFullscreen = async () => {
+  const ensureLandscape = async (withFullscreen = false) => {
     try {
-      if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
+      if (withFullscreen && !document.fullscreenElement && !(document as any).webkitFullscreenElement) {
         const docEl = document.documentElement as any;
         if (docEl.requestFullscreen) {
           await docEl.requestFullscreen();
         } else if (docEl.webkitRequestFullscreen) {
           await docEl.webkitRequestFullscreen();
         }
+      }
+
+      if (typeof screen !== 'undefined' && screen.orientation && 'lock' in screen.orientation) {
+        await (screen.orientation as any).lock('landscape');
+      }
+    } catch (err) {
+      console.warn('Landscape orientation notice:', err);
+    }
+  };
+
+  useEffect(() => {
+    // Attempt landscape orientation immediately on startup even on home screen
+    ensureLandscape(false);
+
+    // Also attempt on first interaction anywhere on home screen
+    const onFirstInteraction = () => {
+      ensureLandscape(false);
+    };
+
+    window.addEventListener('pointerdown', onFirstInteraction, { once: true });
+    window.addEventListener('touchstart', onFirstInteraction, { once: true });
+
+    return () => {
+      window.removeEventListener('pointerdown', onFirstInteraction);
+      window.removeEventListener('touchstart', onFirstInteraction);
+    };
+  }, []);
+
+  const handleToggleFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
+        await ensureLandscape(true);
       } else {
         if (document.exitFullscreen) {
           await document.exitFullscreen();
@@ -221,12 +253,14 @@ export default function App() {
 
   const handleStartGame = (mode: GameMode) => {
     setGameMode(mode);
+    ensureLandscape(true);
     if (engineRef.current) {
       engineRef.current.start(mode, 1);
     }
   };
 
   const handleRestart = () => {
+    ensureLandscape(true);
     if (engineRef.current) {
       engineRef.current.start(gameMode, 1);
     }
@@ -246,6 +280,7 @@ export default function App() {
   };
 
   const handleResume = () => {
+    ensureLandscape(true);
     if (engineRef.current) {
       engineRef.current.resume();
     }
@@ -362,6 +397,7 @@ export default function App() {
           onToggleCRT={handleToggleCRT}
           onToggleTheme={handleToggleTheme}
           onToggleFullscreen={handleToggleFullscreen}
+          onEnsureLandscape={ensureLandscape}
         />
       )}
 

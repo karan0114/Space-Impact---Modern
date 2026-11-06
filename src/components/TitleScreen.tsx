@@ -26,7 +26,8 @@ import {
   Compass,
   Zap,
   User,
-  ShieldCheck
+  ShieldCheck,
+  RotateCw
 } from 'lucide-react';
 
 interface TitleScreenProps {
@@ -48,6 +49,7 @@ interface TitleScreenProps {
   onToggleCRT: () => void;
   onToggleTheme: () => void;
   onToggleFullscreen?: () => void;
+  onEnsureLandscape?: (withFullscreen?: boolean) => void;
 }
 
 export const TitleScreen: React.FC<TitleScreenProps> = ({
@@ -68,14 +70,36 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   onToggleMute,
   onToggleCRT,
   onToggleTheme,
-  onToggleFullscreen
+  onToggleFullscreen,
+  onEnsureLandscape
 }) => {
   const [activeTab, setActiveTab] = useState<'MAIN' | 'CONTROLS' | 'SCORES'>('MAIN');
+  const [isPortrait, setIsPortrait] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.innerHeight > window.innerWidth && window.innerWidth <= 1024;
+  });
+
   const isPink = theme === 'SAKURA_PINK';
   const currentMap = GAME_MAPS[selectedMapId] || GAME_MAPS.NEBULA_STATION;
   const currentMapIndex = MAP_ORDER.indexOf(selectedMapId);
   const nextMapIndex = (currentMapIndex + 1) % MAP_ORDER.length;
   const nextMap = GAME_MAPS[MAP_ORDER[nextMapIndex]];
+
+  // Automatically request landscape on home screen launch
+  React.useEffect(() => {
+    onEnsureLandscape?.(false);
+
+    const checkOrientation = () => {
+      setIsPortrait(window.innerHeight > window.innerWidth && window.innerWidth <= 1024);
+    };
+    window.addEventListener('resize', checkOrientation);
+    window.addEventListener('orientationchange', checkOrientation);
+
+    return () => {
+      window.removeEventListener('resize', checkOrientation);
+      window.removeEventListener('orientationchange', checkOrientation);
+    };
+  }, [onEnsureLandscape]);
 
   // Touch Swipe Gesture Detection for Mobile Smartphones
   const touchStartXRef = useRef<number | null>(null);
@@ -117,9 +141,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   const handleStart = (mode: GameMode) => {
     soundEngine.unlock();
     soundEngine.menuSelect();
-    if (onToggleFullscreen && !isFullscreen) {
-      onToggleFullscreen();
-    }
+    onEnsureLandscape?.(true);
     onStartGame(mode);
   };
 
@@ -242,6 +264,20 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           </button>
         </div>
       </header>
+
+      {/* Landscape Switch Bar for Mobile Portrait Viewports */}
+      {isPortrait && (
+        <div className="w-full max-w-lg px-2 shrink-0 my-1">
+          <button
+            onClick={() => onEnsureLandscape?.(true)}
+            className="w-full py-2 px-3 rounded-lg bg-gradient-to-r from-cyan-950 via-slate-900 to-cyan-950 border border-cyan-400/80 text-cyan-200 font-arcade text-[9px] sm:text-[10px] flex items-center justify-center gap-2 shadow-[0_0_14px_rgba(6,182,212,0.4)] active:scale-95 transition-all animate-pulse"
+            title="Switch screen to landscape mode"
+          >
+            <RotateCw className="w-3.5 h-3.5 text-amber-400 animate-spin" style={{ animationDuration: '4s' }} />
+            <span>SWITCH TO WIDESCREEN LANDSCAPE</span>
+          </button>
+        </div>
+      )}
 
       {/* Main Responsive Center Column: Auto-scaling and scroll-protected */}
       <div className="flex flex-col items-center justify-center my-auto w-full max-w-lg text-center py-1.5 sm:py-2">

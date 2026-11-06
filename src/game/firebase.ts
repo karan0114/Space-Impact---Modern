@@ -15,7 +15,7 @@ import {
   setDoc,
   getDocFromServer
 } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import firebaseConfig from './firebaseConfig';
 import { ShipUpgrades, DailyMission } from './types';
 import { saveShipUpgrades, savePlayerCoins, getPlayerCoins, getShipUpgrades } from './upgrades';
 import { getDailyMissions, saveDailyMissions } from './dailyMissions';
