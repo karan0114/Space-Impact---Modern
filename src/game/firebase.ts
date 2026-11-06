@@ -15,33 +15,49 @@ import {
   setDoc,
   getDocFromServer
 } from 'firebase/firestore';
-import firebaseConfig from './firebaseConfig';
+import rawConfig from '../../firebase-applet-config.json';
 import { ShipUpgrades, DailyMission } from './types';
 import { saveShipUpgrades, savePlayerCoins, getPlayerCoins, getShipUpgrades } from './upgrades';
 import { getDailyMissions, saveDailyMissions } from './dailyMissions';
 
 // Resolve Firebase configuration dynamically from environment or local config
 const resolvedConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey || '',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain || '',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId || '',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket || '',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId || '',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || firebaseConfig.appId || '',
-  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || (firebaseConfig as any).firestoreDatabaseId || ''
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || (rawConfig as any).apiKey || '',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || (rawConfig as any).authDomain || '',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || (rawConfig as any).projectId || '',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || (rawConfig as any).storageBucket || '',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || (rawConfig as any).messagingSenderId || '',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || (rawConfig as any).appId || '',
+  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || (rawConfig as any).firestoreDatabaseId || ''
 };
 
-// Initialize Firebase App
-export const app = initializeApp(resolvedConfig);
+export const isFirebaseConfigured = Boolean(
+  resolvedConfig.apiKey &&
+  resolvedConfig.apiKey.length > 5 &&
+  resolvedConfig.apiKey.startsWith('AIzaSy')
+);
 
-// Initialize Auth
-export const auth = getAuth(app);
+// Initialize Firebase App & Services safely
+let appInstance: any = null;
+let authInstance: any = null;
+let dbInstance: any = null;
 
-// Initialize Firestore (support named database if present in config)
-const dbId = resolvedConfig.firestoreDatabaseId;
-export const db = dbId && dbId !== '(default)'
-  ? getFirestore(app, dbId)
-  : getFirestore(app);
+if (isFirebaseConfigured) {
+  try {
+    appInstance = initializeApp(resolvedConfig);
+    authInstance = getAuth(appInstance);
+    const dbId = resolvedConfig.firestoreDatabaseId;
+    dbInstance = dbId && dbId !== '(default)'
+      ? getFirestore(appInstance, dbId)
+      : getFirestore(appInstance);
+  } catch (err) {
+    console.warn('Firebase services initialization warning:', err);
+  }
+}
+
+export const app = appInstance;
+export const auth = authInstance;
+export const db = dbInstance;
 
 // Providers
 const googleProvider = new GoogleAuthProvider();
@@ -70,6 +86,7 @@ export interface PlayerProgressData {
 
 // Startup connection verification
 export async function testFirestoreConnection(): Promise<boolean> {
+  if (!db) return false;
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
     return true;
@@ -87,6 +104,9 @@ testFirestoreConnection().catch(() => {});
 
 // Auth Helpers
 export async function signInWithGoogle(): Promise<{ user: PlayerUser | null; error?: string }> {
+  if (!auth) {
+    return { user: null, error: 'Firebase Auth is not available. Please check configuration.' };
+  }
   try {
     const cred = await signInWithPopup(auth, googleProvider);
     return {
@@ -105,6 +125,9 @@ export async function signInWithGoogle(): Promise<{ user: PlayerUser | null; err
 }
 
 export async function signInWithFacebook(): Promise<{ user: PlayerUser | null; error?: string }> {
+  if (!auth) {
+    return { user: null, error: 'Firebase Auth is not available. Please check configuration.' };
+  }
   try {
     const cred = await signInWithPopup(auth, facebookProvider);
     return {
@@ -123,6 +146,7 @@ export async function signInWithFacebook(): Promise<{ user: PlayerUser | null; e
 }
 
 export async function signOutPlayer(): Promise<void> {
+  if (!auth) return;
   try {
     await signOut(auth);
   } catch (err) {
@@ -131,6 +155,10 @@ export async function signOutPlayer(): Promise<void> {
 }
 
 export function subscribeToAuth(callback: (user: PlayerUser | null) => void): () => void {
+  if (!auth) {
+    callback(null);
+    return () => {};
+  }
   return onAuthStateChanged(auth, (user: User | null) => {
     if (user) {
       callback({
@@ -156,6 +184,14 @@ export async function syncPlayerDataWithCloud(
   upgrades: ShipUpgrades;
   missions: DailyMission[];
 }> {
+  if (!db) {
+    return {
+      coins: getPlayerCoins(),
+      highScore: parseInt(localStorage.getItem('space_impact_highscore') || '0', 10) || 0,
+      upgrades: getShipUpgrades(),
+      missions: getDailyMissions()
+    };
+  }
   const userDocRef = doc(db, 'users', user.uid);
   
   // 1. Read local state
