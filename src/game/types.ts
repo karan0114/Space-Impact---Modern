@@ -135,6 +135,7 @@ export interface CosmicNebula {
   colorCenter: string;
   colorEdge: string;
   alpha: number;
+  canvas?: HTMLCanvasElement;
 }
 
 export interface Particle {

@@ -19,7 +19,6 @@ import { GameMode, GameState, GameStats, HUDData, ThemeMode, MapId } from './gam
 import { GAME_MAPS, MAP_ORDER } from './game/maps';
 import { getPlayerCoins } from './game/upgrades';
 import { PlayerUser, subscribeToAuth, pushLocalDataToCloud, syncPlayerDataWithCloud } from './game/firebase';
-import { RotateCw, X } from 'lucide-react';
 
 export default function App() {
   const engineRef = useRef<GameEngine | null>(null);
@@ -43,17 +42,15 @@ export default function App() {
 
   const [isMuted, setIsMuted] = useState<boolean>(soundEngine.getMuted());
   const [crtEnabled, setCrtEnabled] = useState<boolean>(() => {
-    return localStorage.getItem('space_impact_crt') !== 'false';
+    const saved = localStorage.getItem('space_impact_crt');
+    if (saved !== null) return saved === 'true';
+    const isMobile = typeof window !== 'undefined' && (window.innerWidth <= 1024 || 'ontouchstart' in window);
+    return !isMobile;
   });
   const [forceTouchControls, setForceTouchControls] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(() => {
     return typeof document !== 'undefined' && Boolean(document.fullscreenElement);
   });
-  const [isPortrait, setIsPortrait] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return window.innerHeight > window.innerWidth && window.innerWidth <= 1024;
-  });
-  const [dismissPortraitTip, setDismissPortraitTip] = useState<boolean>(false);
 
   const [finalStats, setFinalStats] = useState<GameStats>({
     score: 0,
@@ -107,12 +104,6 @@ export default function App() {
     document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
-    const onResize = () => {
-      setIsPortrait(window.innerHeight > window.innerWidth && window.innerWidth <= 1024);
-    };
-    window.addEventListener('resize', onResize);
-    window.addEventListener('orientationchange', onResize);
-
     const unsubAuth = subscribeToAuth((usr) => {
       setCurrentUser(usr);
       if (usr) {
@@ -130,40 +121,18 @@ export default function App() {
       unsubAuth();
       document.removeEventListener('fullscreenchange', onFullscreenChange);
       document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
-      window.removeEventListener('resize', onResize);
-      window.removeEventListener('orientationchange', onResize);
     };
   }, [selectedMapId]);
-
-  const ensureFullscreen = async () => {
-    try {
-      if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
-        const docEl = document.documentElement as any;
-        if (docEl.requestFullscreen) {
-          await docEl.requestFullscreen({ navigationUI: 'hide' });
-        } else if (docEl.webkitRequestFullscreen) {
-          await docEl.webkitRequestFullscreen();
-        } else if (docEl.msRequestFullscreen) {
-          await docEl.msRequestFullscreen();
-        }
-      }
-      // Attempt landscape orientation lock if supported
-      if (typeof screen !== 'undefined' && screen.orientation && 'lock' in screen.orientation) {
-        try {
-          await (screen.orientation as any).lock('landscape');
-        } catch {
-          // Ignored if device does not permit orientation lock
-        }
-      }
-    } catch (err) {
-      console.warn('Fullscreen auto-launch notice:', err);
-    }
-  };
 
   const handleToggleFullscreen = async () => {
     try {
       if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
-        await ensureFullscreen();
+        const docEl = document.documentElement as any;
+        if (docEl.requestFullscreen) {
+          await docEl.requestFullscreen();
+        } else if (docEl.webkitRequestFullscreen) {
+          await docEl.webkitRequestFullscreen();
+        }
       } else {
         if (document.exitFullscreen) {
           await document.exitFullscreen();
@@ -252,14 +221,12 @@ export default function App() {
 
   const handleStartGame = (mode: GameMode) => {
     setGameMode(mode);
-    ensureFullscreen();
     if (engineRef.current) {
       engineRef.current.start(mode, 1);
     }
   };
 
   const handleRestart = () => {
-    ensureFullscreen();
     if (engineRef.current) {
       engineRef.current.start(gameMode, 1);
     }
@@ -279,7 +246,6 @@ export default function App() {
   };
 
   const handleResume = () => {
-    ensureFullscreen();
     if (engineRef.current) {
       engineRef.current.resume();
     }
@@ -338,23 +304,6 @@ export default function App() {
         isPink ? 'bg-[#0e0614]' : 'bg-[#050811]'
       }`}
     >
-      {/* Mobile Portrait Orientation Guidance Pill */}
-      {isPortrait && !dismissPortraitTip && (
-        <aside
-          aria-label="Screen orientation tip"
-          className="absolute top-2 left-1/2 -translate-x-1/2 z-50 bg-slate-950/95 border border-cyan-500/60 rounded-full px-3.5 py-1.5 flex items-center gap-2 text-[10px] sm:text-xs font-mono text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.4)] backdrop-blur-md pointer-events-auto animate-fade-in"
-        >
-          <RotateCw className="w-3.5 h-3.5 text-amber-400 animate-spin" style={{ animationDuration: '4s' }} />
-          <span>ROTATE PHONE TO LANDSCAPE FOR WIDESCREEN COMBAT</span>
-          <button
-            onClick={() => setDismissPortraitTip(true)}
-            className="p-0.5 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition-colors ml-1"
-            title="Dismiss notification"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </aside>
-      )}
 
       {/* 60fps Isolated Canvas Viewport with Touch Drag Navigation */}
       <GameCanvas

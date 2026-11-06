@@ -98,12 +98,9 @@ export function drawPlayerShip(
 
   // Cockpit canopy
   ctx.fillStyle = isPink ? '#fda4af' : '#22d3ee';
-  ctx.shadowColor = isPink ? '#f43f5e' : '#06b6d4';
-  ctx.shadowBlur = 8;
   ctx.beginPath();
   ctx.ellipse(w * 0.52, h * 0.5, 7, 3.5, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.shadowBlur = 0; // reset
 
   // Cockpit reflection glint
   ctx.fillStyle = '#ffffff';
@@ -115,14 +112,18 @@ export function drawPlayerShip(
     const shieldColor = isPink
       ? `rgba(244, 114, 182, ${0.45 + shieldPulse * 0.45})`
       : `rgba(6, 182, 212, ${0.4 + shieldPulse * 0.4})`;
-    ctx.strokeStyle = shieldColor;
-    ctx.lineWidth = 2.5;
-    ctx.shadowColor = isPink ? '#f472b6' : '#06b6d4';
-    ctx.shadowBlur = 10;
+    // Concentric neon shield glow (GPU accelerated, no software blur)
+    ctx.strokeStyle = isPink ? 'rgba(244, 114, 182, 0.22)' : 'rgba(6, 182, 212, 0.18)';
+    ctx.lineWidth = 5;
     ctx.beginPath();
     ctx.ellipse(w * 0.5, h * 0.5, w * 0.65, h * 0.8, 0, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.shadowBlur = 0;
+
+    ctx.strokeStyle = shieldColor;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.ellipse(w * 0.5, h * 0.5, w * 0.65, h * 0.8, 0, 0, Math.PI * 2);
+    ctx.stroke();
   }
 
   ctx.restore();
@@ -362,14 +363,15 @@ export function drawBoss(ctx: CanvasRenderingContext2D, boss: Boss, timestamp: n
       ctx.ellipse(w * 0.72, h * 0.5, w * 0.22, h * 0.35, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Colossal glowing eye with pupil that tracks
+      // Colossal glowing eye with concentric neon glow ring
+      ctx.fillStyle = 'rgba(244, 63, 94, 0.25)';
+      ctx.beginPath();
+      ctx.arc(w * 0.38, h * 0.5, 26, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = '#ef4444';
-      ctx.shadowColor = '#f43f5e';
-      ctx.shadowBlur = 15;
       ctx.beginPath();
       ctx.arc(w * 0.38, h * 0.5, 20, 0, Math.PI * 2);
       ctx.fill();
-      ctx.shadowBlur = 0;
 
       // Inner pupil
       ctx.fillStyle = '#0f172a';
@@ -396,15 +398,16 @@ export function drawBoss(ctx: CanvasRenderingContext2D, boss: Boss, timestamp: n
       ctx.fillStyle = '#1e293b';
       ctx.fillRect(w * 0.2, 0, w * 0.8, h);
 
-      // Core plasma generator
+      // Core plasma generator with concentric outer pulse
       const corePulse = (Math.sin(t * 6) + 1) * 0.5;
+      ctx.fillStyle = 'rgba(249, 115, 22, 0.25)';
+      ctx.beginPath();
+      ctx.arc(w * 0.5, h * 0.5, 28 + 8 * corePulse, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = `rgb(249, 115, 22)`;
-      ctx.shadowColor = '#f97316';
-      ctx.shadowBlur = 20 * corePulse;
       ctx.beginPath();
       ctx.arc(w * 0.5, h * 0.5, 28, 0, Math.PI * 2);
       ctx.fill();
-      ctx.shadowBlur = 0;
 
       // Heavy Laser batteries (top & bottom)
       ctx.fillStyle = '#475569';
@@ -434,15 +437,18 @@ export function drawBoss(ctx: CanvasRenderingContext2D, boss: Boss, timestamp: n
       ctx.fillStyle = '#334155';
       ctx.fillRect(w * 0.35, h * 0.2, w * 0.55, h * 0.6);
 
-      // Frontal shield generator
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 4;
-      ctx.shadowColor = '#38bdf8';
-      ctx.shadowBlur = 12;
+      // Frontal shield generator (concentric strokes)
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.25)';
+      ctx.lineWidth = 8;
       ctx.beginPath();
       ctx.arc(0, h * 0.5, h * 0.48, -Math.PI * 0.4, Math.PI * 0.4);
       ctx.stroke();
-      ctx.shadowBlur = 0;
+
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(0, h * 0.5, h * 0.48, -Math.PI * 0.4, Math.PI * 0.4);
+      ctx.stroke();
 
       // Multiple missile bays
       ctx.fillStyle = '#ef4444';
@@ -462,13 +468,10 @@ export function drawBoss(ctx: CanvasRenderingContext2D, boss: Boss, timestamp: n
 
       // Eye sockets (fiery neon laser apertures)
       ctx.fillStyle = '#f43f5e';
-      ctx.shadowColor = '#ef4444';
-      ctx.shadowBlur = 16;
       ctx.beginPath();
       ctx.ellipse(w * 0.3, h * 0.32, 12, 16, 0, 0, Math.PI * 2);
       ctx.ellipse(w * 0.3, h * 0.55, 12, 16, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.shadowBlur = 0;
 
       // Jaw with teeth (chomp animation)
       const chomp = Math.sin(t * 5) * 8;
@@ -491,11 +494,8 @@ export function drawBoss(ctx: CanvasRenderingContext2D, boss: Boss, timestamp: n
         const ox = w * 0.5 + Math.cos(orbitAngle) * (w * 0.55);
         const oy = h * 0.5 + Math.sin(orbitAngle) * (h * 0.55);
         ctx.fillStyle = '#06b6d4';
-        ctx.shadowColor = '#22d3ee';
-        ctx.shadowBlur = 10;
         ctx.fillRect(ox - 8, oy - 8, 16, 16);
       }
-      ctx.shadowBlur = 0;
 
       // Central core
       const corePulse = (Math.sin(t * 8) + 1) * 0.5;
@@ -535,18 +535,18 @@ export function drawProjectile(ctx: CanvasRenderingContext2D, p: Projectile, the
       ctx.fillStyle = isPink ? '#fb7185' : '#ef4444';
       ctx.fillRect(6, -2, 4, 4);
     } else if (p.type === 'LASER_BEAM') {
-      // High power plasma beam
+      // High power plasma beam with concentric neon outer envelope
+      ctx.fillStyle = isPink ? 'rgba(244, 63, 94, 0.35)' : 'rgba(6, 182, 212, 0.35)';
+      ctx.fillRect(-16, -7, 36, 14);
       ctx.fillStyle = isPink ? '#fb7185' : '#38bdf8';
-      ctx.shadowColor = isPink ? '#f43f5e' : '#06b6d4';
-      ctx.shadowBlur = 12;
       ctx.fillRect(-12, -4, 28, 8);
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(-10, -2, 24, 4);
     } else {
-      // Standard / Twin / Spread blaster bolt
+      // Standard / Twin / Spread blaster bolt with neon halo
+      ctx.fillStyle = isPink ? 'rgba(236, 72, 153, 0.35)' : 'rgba(6, 182, 212, 0.35)';
+      ctx.fillRect(-9, -4, 20, 8);
       ctx.fillStyle = isPink ? '#f472b6' : '#22d3ee';
-      ctx.shadowColor = isPink ? '#ec4899' : '#06b6d4';
-      ctx.shadowBlur = 8;
       ctx.fillRect(-6, -2, 14, 4);
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(-4, -1, 10, 2);
@@ -554,22 +554,24 @@ export function drawProjectile(ctx: CanvasRenderingContext2D, p: Projectile, the
   } else {
     // Enemy projectile (Hot Magenta / Crimson)
     if (p.type === 'BOSS_BEAM') {
+      ctx.fillStyle = 'rgba(225, 29, 72, 0.35)';
+      ctx.fillRect(-20, -9, 40, 18);
       ctx.fillStyle = '#f43f5e';
-      ctx.shadowColor = '#e11d48';
-      ctx.shadowBlur = 15;
       ctx.fillRect(-16, -6, 32, 12);
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(-12, -2, 24, 4);
     } else {
+      ctx.fillStyle = 'rgba(244, 63, 94, 0.35)';
+      ctx.beginPath();
+      ctx.arc(0, 0, p.radius + 2, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = '#fb7185';
-      ctx.shadowColor = '#f43f5e';
-      ctx.shadowBlur = 6;
       ctx.beginPath();
       ctx.arc(0, 0, p.radius, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.arc(0, 0, p.radius * 0.4, 0, Math.PI * 2);
+      ctx.arc(0, 0, p.radius * 0.45, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -612,18 +614,22 @@ export function drawPowerUp(ctx: CanvasRenderingContext2D, powerUp: PowerUp, tim
       break;
   }
 
-  // Glowing outer hexagon / circle
+  // Glowing outer hexagon / circle (layered neon ring)
   ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
   ctx.strokeStyle = color;
   ctx.lineWidth = 2.5;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 10;
 
   ctx.beginPath();
   ctx.arc(0, 0, r, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
-  ctx.shadowBlur = 0;
+
+  // Outer neon pulse ring
+  ctx.strokeStyle = color.replace(')', ', 0.3)').replace('rgb', 'rgba').replace('#', 'rgba(');
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(0, 0, r + 2.5, 0, Math.PI * 2);
+  ctx.stroke();
 
   // Inner icon
   ctx.fillStyle = color;

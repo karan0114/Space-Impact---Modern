@@ -20,15 +20,27 @@ import { ShipUpgrades, DailyMission } from './types';
 import { saveShipUpgrades, savePlayerCoins, getPlayerCoins, getShipUpgrades } from './upgrades';
 import { getDailyMissions, saveDailyMissions } from './dailyMissions';
 
+// Resolve Firebase configuration dynamically from environment or local config
+const resolvedConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey || '',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain || '',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId || '',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket || '',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId || '',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || firebaseConfig.appId || '',
+  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || (firebaseConfig as any).firestoreDatabaseId || ''
+};
+
 // Initialize Firebase App
-export const app = initializeApp(firebaseConfig);
+export const app = initializeApp(resolvedConfig);
 
 // Initialize Auth
 export const auth = getAuth(app);
 
 // Initialize Firestore (support named database if present in config)
-export const db = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+const dbId = resolvedConfig.firestoreDatabaseId;
+export const db = dbId && dbId !== '(default)'
+  ? getFirestore(app, dbId)
   : getFirestore(app);
 
 // Providers

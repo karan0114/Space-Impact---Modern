@@ -88,7 +88,9 @@ export class GameEngine {
   // Map & Environmental Backgrounds
   public selectedMapId: MapId = 'NEBULA_STATION';
   private mapImages: Record<MapId, HTMLImageElement>;
+  private seamlessMapCanvases: Partial<Record<MapId, HTMLCanvasElement>> = {};
   private mapScrollX: number = 0;
+  private lastHudEmitTime: number = 0;
 
   // Economy & Upgrades
   public coins: number = 0;
@@ -129,17 +131,24 @@ export class GameEngine {
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false })!;
+    this.ctx.imageSmoothingEnabled = true;
     this.stageConfig = getStageConfig(1);
 
-    // Initialize map backgrounds
-    this.mapImages = {
-      NEBULA_STATION: new Image(),
-      TOXIC_BELT: new Image(),
-      SINGULARITY_ABYSS: new Image()
+    // Initialize map backgrounds with auto-preparer for seamless looping
+    const setupImg = (id: MapId, url: string) => {
+      const img = new Image();
+      img.onload = () => {
+        this.prepareSeamlessMap(id);
+      };
+      img.src = url;
+      return img;
     };
-    this.mapImages.NEBULA_STATION.src = GAME_MAPS.NEBULA_STATION.imageUrl;
-    this.mapImages.TOXIC_BELT.src = GAME_MAPS.TOXIC_BELT.imageUrl;
-    this.mapImages.SINGULARITY_ABYSS.src = GAME_MAPS.SINGULARITY_ABYSS.imageUrl;
+
+    this.mapImages = {
+      NEBULA_STATION: setupImg('NEBULA_STATION', GAME_MAPS.NEBULA_STATION.imageUrl),
+      TOXIC_BELT: setupImg('TOXIC_BELT', GAME_MAPS.TOXIC_BELT.imageUrl),
+      SINGULARITY_ABYSS: setupImg('SINGULARITY_ABYSS', GAME_MAPS.SINGULARITY_ABYSS.imageUrl)
+    };
 
     const savedMap = localStorage.getItem('space_impact_selected_map') as MapId;
     if (savedMap && GAME_MAPS[savedMap]) {
@@ -320,14 +329,66 @@ export class GameEngine {
     };
   }
 
+  /**
+   * Pre-bakes a natural, forward-oriented seamless looping map texture.
+   * Uses center-split offset and soft linear crossfade so left and right
+   * edges seamlessly meet without horizontal mirror flips or "pages" folding!
+   */
+  private prepareSeamlessMap(mapId: MapId) {
+    const img = this.mapImages[mapId];
+    if (!img || !img.complete || img.naturalWidth <= 0) return;
+    try {
+      const w = img.naturalWidth;
+      const h = img.naturalHeight;
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext('2d');
+      if (!ctx) return;
+
+      const halfW = Math.floor(w / 2);
+      const blendW = Math.min(320, Math.floor(w * 0.22));
+
+      // 1. Draw right half of original on left side of canvas
+      ctx.drawImage(img, halfW, 0, w - halfW, h, 0, 0, w - halfW, h);
+      // Draw left half of original on right side of canvas
+      ctx.drawImage(img, 0, 0, halfW, h, w - halfW, 0, halfW, h);
+
+      // 2. Feather the middle seam where original right meets original left
+      const seamX = w - halfW;
+      const blendCanvas = document.createElement('canvas');
+      blendCanvas.width = blendW;
+      blendCanvas.height = h;
+      const bCtx = blendCanvas.getContext('2d');
+      if (bCtx) {
+        bCtx.drawImage(img, 0, 0, blendW, h, 0, 0, blendW, h);
+        bCtx.globalCompositeOperation = 'destination-in';
+        const grad = bCtx.createLinearGradient(0, 0, blendW, 0);
+        grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        grad.addColorStop(0.5, 'rgba(0, 0, 0, 0.85)');
+        grad.addColorStop(1, 'rgba(0, 0, 0, 1)');
+        bCtx.fillStyle = grad;
+        bCtx.fillRect(0, 0, blendW, h);
+
+        ctx.drawImage(blendCanvas, seamX - Math.floor(blendW / 2), 0);
+      }
+
+      this.seamlessMapCanvases[mapId] = c;
+    } catch (e) {
+      console.warn('Seamless map preparation skipped:', e);
+    }
+  }
+
   private initNebulae() {
     this.cosmicNebulae = [];
     const w = this.canvas.width || 800;
     const h = this.canvas.height || 450;
     const isPink = this.theme === 'SAKURA_PINK';
 
-    // 4 atmospheric drifting cosmic nebula gas clouds
-    const nebulaCount = 4;
+    const isMobile = typeof window !== 'undefined' && (window.innerWidth <= 1024 || 'ontouchstart' in window);
+
+    // 3 or 4 atmospheric drifting cosmic nebula gas clouds
+    const nebulaCount = isMobile ? 3 : 4;
     for (let i = 0; i < nebulaCount; i++) {
       const x = (i / nebulaCount) * w + (Math.random() - 0.5) * (w / nebulaCount);
       const y = Math.random() * h;
@@ -359,6 +420,23 @@ export class GameEngine {
         colorEdge = item.e;
       }
 
+      // Pre-render radial gradient onto an offscreen canvas sprite once to eliminate runtime GPU shader compiling
+      const nebCanvas = document.createElement('canvas');
+      const size = Math.ceil(radius * 2);
+      nebCanvas.width = size;
+      nebCanvas.height = size;
+      const nCtx = nebCanvas.getContext('2d');
+      if (nCtx) {
+        const grad = nCtx.createRadialGradient(radius, radius, radius * 0.05, radius, radius, radius);
+        grad.addColorStop(0, colorCenter);
+        grad.addColorStop(0.65, colorCenter.replace(/[\d\.]+\)$/, '0.03)'));
+        grad.addColorStop(1, colorEdge);
+        nCtx.fillStyle = grad;
+        nCtx.beginPath();
+        nCtx.arc(radius, radius, radius, 0, Math.PI * 2);
+        nCtx.fill();
+      }
+
       this.cosmicNebulae.push({
         x,
         y,
@@ -366,7 +444,8 @@ export class GameEngine {
         baseSpeed,
         colorCenter,
         colorEdge,
-        alpha: 1.0
+        alpha: 1.0,
+        canvas: nebCanvas
       });
     }
   }
@@ -377,8 +456,9 @@ export class GameEngine {
     const h = this.canvas.height || 450;
     const isPink = this.theme === 'SAKURA_PINK';
 
-    // Layer 0: Deep background distant stars (75 stars) - Slow drift, soft glow, micro pinpoints
-    const layer0Count = 75;
+    // Layer 0: Deep background distant stars - Slow drift, soft glow, micro pinpoints
+    const isMobile = typeof window !== 'undefined' && (window.innerWidth <= 1024 || 'ontouchstart' in window);
+    const layer0Count = isMobile ? 36 : 75;
     for (let i = 0; i < layer0Count; i++) {
       const baseSpeed = 16 + Math.random() * 20;
       const baseAlpha = 0.25 + Math.random() * 0.35;
@@ -410,8 +490,8 @@ export class GameEngine {
       });
     }
 
-    // Layer 1: Mid-field cosmic belt stars (55 stars) - Moderate speed, sharp diamonds, crisp celestial color
-    const layer1Count = 55;
+    // Layer 1: Mid-field cosmic belt stars - Moderate speed, sharp diamonds, crisp celestial color
+    const layer1Count = isMobile ? 26 : 55;
     for (let i = 0; i < layer1Count; i++) {
       const baseSpeed = 55 + Math.random() * 50;
       const baseAlpha = 0.55 + Math.random() * 0.35;
@@ -444,8 +524,8 @@ export class GameEngine {
       });
     }
 
-    // Layer 2: Near foreground velocity stardust (32 stars) - High speed, vibrant, stretch into velocity streaks
-    const layer2Count = 32;
+    // Layer 2: Near foreground velocity stardust - High speed, vibrant, stretch into velocity streaks
+    const layer2Count = isMobile ? 16 : 32;
     for (let i = 0; i < layer2Count; i++) {
       const baseSpeed = 135 + Math.random() * 115;
       const baseAlpha = 0.8 + Math.random() * 0.2;
@@ -480,13 +560,18 @@ export class GameEngine {
 
   public resize(width: number, height: number) {
     if (width <= 0 || height <= 0) return;
+    if (this.canvas.width === width && this.canvas.height === height) return;
     const oldW = this.canvas.width;
     const oldH = this.canvas.height;
     this.canvas.width = width;
     this.canvas.height = height;
     this.updateSafeMargins();
-    this.initNebulae();
-    this.initStars();
+    
+    // Only re-generate background stars/nebulae on first init or significant viewport shift (>80px)
+    if (!this.parallaxStars.length || Math.abs(oldW - width) > 80 || Math.abs(oldH - height) > 80) {
+      this.initNebulae();
+      this.initStars();
+    }
 
     // Dynamically preserve player position when viewport shifts
     if (this.player) {
@@ -2457,50 +2542,25 @@ export class GameEngine {
     ctx.fillStyle = isPink ? '#0e0614' : this.stageConfig.backgroundHue || '#050811';
     ctx.fillRect(0, 0, w, h);
 
-    // 1b. Seamless Horizontal Parallax Background Map (Mirrored Ping-Pong Tiling + Crossfade Blend)
+    // 1b. Seamless Horizontal Parallax Background Map (Forward Scrolling without Mirror/Page Folds)
     const mapImg = this.mapImages[this.selectedMapId];
     if (mapImg && mapImg.complete && mapImg.naturalWidth > 0) {
       ctx.save();
+      const seamlessSource = this.seamlessMapCanvases[this.selectedMapId] || mapImg;
+      const srcW = ('naturalWidth' in seamlessSource ? (seamlessSource as HTMLImageElement).naturalWidth : (seamlessSource as HTMLCanvasElement).width) || w;
+      const srcH = ('naturalHeight' in seamlessSource ? (seamlessSource as HTMLImageElement).naturalHeight : (seamlessSource as HTMLCanvasElement).height) || h;
 
-      // Maintain aspect ratio while ensuring the tile covers vertical height
-      const naturalAspect = mapImg.naturalWidth / Math.max(1, mapImg.naturalHeight);
+      // Maintain aspect ratio while ensuring vertical coverage
+      const naturalAspect = srcW / Math.max(1, srcH);
       const tileWidth = Math.max(w, Math.round(h * naturalAspect));
       const tileHeight = h;
 
-      // Ping-pong cycle: Tile 0 = Normal, Tile 1 = Mirrored (Horizontal Flip)
-      // Cycle length = 2 * tileWidth
-      const cycleLength = tileWidth * 2;
-      const normalizedScroll = ((this.mapScrollX % cycleLength) + cycleLength) % cycleLength;
+      // Pure forward continuous scroll without horizontal mirroring or "pages" crease
+      const normalizedScroll = ((this.mapScrollX % tileWidth) + tileWidth) % tileWidth;
+      const firstTileX = -normalizedScroll;
 
-      // Find the leftmost tile that intersects the screen
-      const startTileNumber = Math.floor((normalizedScroll) / tileWidth);
-      const firstTileX = -((normalizedScroll) % tileWidth);
-
-      // Render all tiles required to cover screen width with safety margins
-      for (let tx = firstTileX, tNum = startTileNumber; tx < w + 20; tx += tileWidth, tNum++) {
-        const isMirrored = Math.abs(tNum) % 2 === 1;
-
-        ctx.save();
-        if (isMirrored) {
-          // Mirror horizontally so the left edge matches the previous tile's right edge exactly
-          ctx.translate(tx + tileWidth, 0);
-          ctx.scale(-1, 1);
-          ctx.drawImage(mapImg, 0, 0, tileWidth, tileHeight);
-        } else {
-          ctx.drawImage(mapImg, tx, 0, tileWidth, tileHeight);
-        }
-        ctx.restore();
-
-        // Seam junction feathering: Softens any high-contrast star or cloud clusters right at the fold
-        if (tx > -80 && tx < w + 80) {
-          const blendHalfW = 42;
-          const blendGrad = ctx.createLinearGradient(tx - blendHalfW, 0, tx + blendHalfW, 0);
-          blendGrad.addColorStop(0, 'rgba(3, 5, 14, 0)');
-          blendGrad.addColorStop(0.5, 'rgba(4, 7, 18, 0.28)');
-          blendGrad.addColorStop(1, 'rgba(3, 5, 14, 0)');
-          ctx.fillStyle = blendGrad;
-          ctx.fillRect(tx - blendHalfW, 0, blendHalfW * 2, tileHeight);
-        }
+      for (let tx = firstTileX; tx < w + 20; tx += tileWidth) {
+        ctx.drawImage(seamlessSource, tx, 0, tileWidth, tileHeight);
       }
 
       // Environmental map atmospheric tint
@@ -2517,41 +2577,43 @@ export class GameEngine {
       ctx.restore();
     }
 
-    // 2. Cosmic Nebulae (Deep Parallax Layer)
+    // 2. Cosmic Nebulae (Deep Parallax Layer using cached offscreen sprites for maximum FPS)
     for (const neb of this.cosmicNebulae) {
-      const grad = ctx.createRadialGradient(
-        neb.x, neb.y, neb.radius * 0.05,
-        neb.x, neb.y, neb.radius
-      );
-      grad.addColorStop(0, neb.colorCenter);
-      grad.addColorStop(0.65, neb.colorCenter.replace(/[\d\.]+\)$/, '0.03)'));
-      grad.addColorStop(1, neb.colorEdge);
-
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.arc(neb.x, neb.y, neb.radius, 0, Math.PI * 2);
-      ctx.fill();
+      if (neb.canvas) {
+        ctx.drawImage(neb.canvas, neb.x - neb.radius, neb.y - neb.radius);
+      } else {
+        const grad = ctx.createRadialGradient(
+          neb.x, neb.y, neb.radius * 0.05,
+          neb.x, neb.y, neb.radius
+        );
+        grad.addColorStop(0, neb.colorCenter);
+        grad.addColorStop(0.65, neb.colorCenter.replace(/[\d\.]+\)$/, '0.03)'));
+        grad.addColorStop(1, neb.colorEdge);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(neb.x, neb.y, neb.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
-    // 3. Subtle cyber grid (with gentle velocity scrolling)
+    // 3. Subtle cyber grid (batched single path & stroke for 60fps mobile execution)
     const stageSpeedMult = this.getStageSpeedMultiplier();
     const gridOffsetX = (timestamp * 0.02 * stageSpeedMult) % 48;
     ctx.strokeStyle = isPink ? 'rgba(244, 114, 182, 0.035)' : 'rgba(255, 255, 255, 0.02)';
     ctx.lineWidth = 1;
     const gridSize = 48;
+    ctx.beginPath();
     for (let x = -gridOffsetX; x < w + gridSize; x += gridSize) {
-      if (x < 0) continue;
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
-      ctx.stroke();
+      if (x >= 0) {
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+      }
     }
     for (let y = 0; y < h; y += gridSize) {
-      ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(w, y);
-      ctx.stroke();
     }
+    ctx.stroke();
 
     // Subtle tactical safe bounds markers for mobile / Android screens
     if (this.safeFitMode && (this.safeLeftMargin > 20 || this.safeRightMargin > 20)) {
@@ -2732,18 +2794,34 @@ export class GameEngine {
         ctx.save();
         const p = this.player;
         const shieldRatio = Math.min(1.0, p.shieldHp / 80);
+        // Outer soft glow ring
         ctx.strokeStyle = isPink
-          ? `rgba(244, 114, 182, ${0.4 + 0.35 * shieldRatio})`
-          : `rgba(56, 189, 248, ${0.4 + 0.35 * shieldRatio})`;
-        ctx.lineWidth = 2;
-        ctx.shadowColor = isPink ? '#f472b6' : '#38bdf8';
-        ctx.shadowBlur = 10;
+          ? 'rgba(244, 114, 182, 0.22)'
+          : 'rgba(56, 189, 248, 0.22)';
+        ctx.lineWidth = 4;
         ctx.beginPath();
         ctx.ellipse(
           p.x + p.width * 0.45,
           p.y + p.height * 0.5,
-          p.width * 0.75,
-          p.height * 0.9,
+          p.width * 0.77,
+          p.height * 0.92,
+          0,
+          0,
+          Math.PI * 2
+        );
+        ctx.stroke();
+
+        // Inner crisp kinetic ring
+        ctx.strokeStyle = isPink
+          ? `rgba(244, 114, 182, ${0.5 + 0.45 * shieldRatio})`
+          : `rgba(56, 189, 248, ${0.5 + 0.45 * shieldRatio})`;
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.ellipse(
+          p.x + p.width * 0.45,
+          p.y + p.height * 0.5,
+          p.width * 0.74,
+          p.height * 0.89,
           0,
           0,
           Math.PI * 2
@@ -2763,16 +2841,12 @@ export class GameEngine {
       if (pt.shape === 'RING' && pt.ringRadius !== undefined) {
         ctx.strokeStyle = pt.color;
         ctx.lineWidth = Math.max(1, (pt.size || 2) * alpha);
-        ctx.shadowColor = pt.color;
-        ctx.shadowBlur = 8;
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, pt.ringRadius, 0, Math.PI * 2);
         ctx.stroke();
       } else if (pt.shape === 'SPARK') {
         ctx.strokeStyle = pt.color;
         ctx.lineWidth = pt.size;
-        ctx.shadowColor = pt.color;
-        ctx.shadowBlur = 6;
         ctx.beginPath();
         ctx.moveTo(pt.x, pt.y);
         ctx.lineTo(pt.x - pt.vx * 0.035, pt.y - pt.vy * 0.035);
@@ -2805,8 +2879,6 @@ export class GameEngine {
       ctx.font = `bold ${ft.fontSize}px "Press Start 2P", cursive`;
       ctx.fillStyle = ft.color;
       ctx.globalAlpha = alpha;
-      ctx.shadowColor = ft.color;
-      ctx.shadowBlur = 6;
       ctx.textAlign = 'center';
       ctx.fillText(ft.text, ft.x, ft.y);
       ctx.restore();
@@ -2831,11 +2903,8 @@ export class GameEngine {
 
       const dots = '.'.repeat(Math.floor((timestamp / 280) % 4));
       ctx.fillStyle = isPink ? '#fb7185' : '#38bdf8';
-      ctx.shadowColor = isPink ? '#f43f5e' : '#06b6d4';
-      ctx.shadowBlur = 12;
       ctx.font = 'bold 19px "Press Start 2P", cursive';
       ctx.fillText(`MOVING TO NEXT SECTOR${dots}`, w * 0.5, bannerY + 68);
-      ctx.shadowBlur = 0;
 
       const nextStage = CAMPAIGN_STAGES[this.currentStageIndex];
       const nextTitle = nextStage ? nextStage.title : 'HYPERSPACE CORRIDOR';
@@ -2855,12 +2924,9 @@ export class GameEngine {
       ctx.strokeRect(0, h * 0.4, w, 80);
 
       ctx.fillStyle = '#ef4444';
-      ctx.shadowColor = '#dc2626';
-      ctx.shadowBlur = 10;
       ctx.font = 'bold 20px "Press Start 2P", cursive';
       ctx.textAlign = 'center';
       ctx.fillText('WARNING: BOSS APPROACHING', w * 0.5, h * 0.4 + 48);
-      ctx.shadowBlur = 0;
     }
 
     ctx.restore();
@@ -2868,8 +2934,12 @@ export class GameEngine {
 
   // --- HUD Sync helper ---
 
-  private emitHUD() {
+  private emitHUD(force = false) {
     if (!this.onHUDUpdate) return;
+    const now = performance.now();
+    if (!force && now - this.lastHudEmitTime < 80) return; // ~12.5 fps throttle prevents React reconciliation thrashing on mobile
+    this.lastHudEmitTime = now;
+
     this.onHUDUpdate({
       hp: this.player.hp,
       maxHp: this.player.maxHp,

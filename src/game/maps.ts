@@ -1,9 +1,9 @@
 import { MapConfig, MapId } from './types';
 
 // Real generated high-resolution 16:9 space backgrounds
-import easyBgUrl from '../assets/images/bg_easy_nebula_station_1793768357157.jpg';
-import mediumBgUrl from '../assets/images/bg_medium_toxic_belt_1793768370742.jpg';
-import hardBgUrl from '../assets/images/bg_hard_singularity_1793768384137.jpg';
+import easyBgUrl from '../assets/images/bg_nebula_station_1793942997800.jpg';
+import mediumBgUrl from '../assets/images/bg_toxic_belt_1793943011340.jpg';
+import hardBgUrl from '../assets/images/bg_singularity_abyss_1793943012006.jpg';
 
 export const GAME_MAPS: Record<MapId, MapConfig> = {
   NEBULA_STATION: {

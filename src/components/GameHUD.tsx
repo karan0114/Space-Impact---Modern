@@ -167,8 +167,119 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           </div>
         )}
 
-        {/* Right: Score & High Score & Combo Multiplier */}
+        {/* Right: Controls Toolbar & Score Box */}
         <div className="flex flex-col items-end gap-1.5 pointer-events-auto">
+          {/* Top Quick Actions Bar (Never overlaps with bottom-right mobile thumb action controls!) */}
+          <div
+            className={`flex items-center gap-1 sm:gap-1.5 border backdrop-blur-xs p-1 sm:p-1.5 rounded-lg shadow-lg pointer-events-auto transition-colors ${
+              isPink ? 'bg-rose-950/85 border-pink-700/60' : 'bg-slate-950/85 border-slate-800/80'
+            }`}
+          >
+            {/* Pink Sakura Theme Toggle Button */}
+            <button
+              onClick={onToggleTheme}
+              title={isPink ? 'Switch to Cyber Neon Theme' : 'Switch to Sakura Pink Theme (Female Pilot Edition)'}
+              className={`p-1 sm:p-1.5 rounded transition-all active:scale-90 ${
+                isPink
+                  ? 'bg-pink-600/40 border border-pink-400 text-pink-200 shadow-[0_0_8px_rgba(244,114,182,0.6)]'
+                  : 'text-slate-400 hover:text-pink-300 hover:bg-slate-900'
+              }`}
+            >
+              {isPink ? <Heart className="w-3.5 h-3.5 fill-pink-400 text-pink-300" /> : <Sparkles className="w-3.5 h-3.5" />}
+            </button>
+
+            {/* Auto-Fire Toggle */}
+            <button
+              onClick={onToggleAutoFire}
+              title={hud.autoFire ? 'Auto-Fire Enabled (Click to toggle)' : 'Auto-Fire Disabled (Click to toggle)'}
+              className={`p-1 sm:p-1.5 rounded transition-colors ${
+                hud.autoFire
+                  ? isPink
+                    ? 'bg-pink-950 border border-pink-600 text-pink-300'
+                    : 'bg-cyan-950 border border-cyan-700 text-cyan-300'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5" />
+            </button>
+
+            {/* CRT Scanline Toggle */}
+            <button
+              onClick={onToggleCRT}
+              title={crtEnabled ? 'Disable CRT Scanlines' : 'Enable CRT Scanlines'}
+              className={`p-1 sm:p-1.5 rounded transition-colors ${
+                crtEnabled
+                  ? isPink
+                    ? 'bg-pink-950 border border-pink-700 text-pink-300'
+                    : 'bg-cyan-950 border border-cyan-700 text-cyan-300'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+              }`}
+            >
+              <Tv className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Safe Bounds Toggle (Android / Mobile Optimization) */}
+            {onToggleSafeFit && (
+              <button
+                onClick={onToggleSafeFit}
+                title={
+                  hud.safeFitMode !== false
+                    ? 'Android Safe Bounds Active - Click to toggle Full Stretch'
+                    : 'Full Screen Stretch Active - Click for Android Safe Bounds'
+                }
+                className={`p-1 sm:p-1.5 rounded transition-colors ${
+                  hud.safeFitMode !== false
+                    ? isPink
+                      ? 'bg-pink-900/60 border border-pink-500 text-pink-200'
+                      : 'bg-cyan-950 border border-cyan-600 text-cyan-300'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                }`}
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Fullscreen Immersive Mode Toggle */}
+            {onToggleFullscreen && (
+              <button
+                onClick={onToggleFullscreen}
+                title={isFullscreen ? 'Exit Fullscreen' : 'Enter Immersive Fullscreen'}
+                className={`p-1 sm:p-1.5 rounded transition-colors ${
+                  isFullscreen
+                    ? isPink
+                      ? 'bg-pink-900/60 border border-pink-500 text-pink-200'
+                      : 'bg-emerald-950 border border-emerald-600 text-emerald-300'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                }`}
+              >
+                {isFullscreen ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
+              </button>
+            )}
+
+            {/* Sound Mute Toggle */}
+            <button
+              onClick={onToggleMute}
+              title={isMuted ? 'Unmute Sound' : 'Mute Sound'}
+              className="p-1 sm:p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-900 rounded transition-colors"
+            >
+              {isMuted ? <VolumeX className="w-3.5 h-3.5 text-rose-400" /> : <Volume2 className="w-3.5 h-3.5 text-slate-300" />}
+            </button>
+
+            {/* High-Visibility PAUSE Button (Safely isolated from thumbs) */}
+            <button
+              onClick={onPause}
+              title="Pause Game (Esc or P)"
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-md font-arcade text-[8px] sm:text-[9px] active:scale-95 transition-all shadow-md ml-0.5 ${
+                isPink
+                  ? 'bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 border border-pink-300 text-white shadow-[0_0_10px_rgba(244,114,182,0.5)]'
+                  : 'bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 border border-amber-300 text-white shadow-[0_0_10px_rgba(245,158,11,0.4)]'
+              }`}
+            >
+              <Pause className="w-3 h-3 fill-current" />
+              <span>PAUSE</span>
+            </button>
+          </div>
+
           <div
             className={`flex flex-col items-end gap-0.5 sm:gap-1 border backdrop-blur-xs px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg shadow-lg transition-colors ${
               isPink
@@ -398,115 +509,15 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           </div>
         </div>
 
-        {/* Action & Utility Buttons */}
-        <div
-          className={`flex items-center gap-1 sm:gap-1.5 border backdrop-blur-xs p-1 sm:p-1.5 rounded-lg pointer-events-auto transition-colors ${
-            isPink ? 'bg-rose-950/80 border-pink-700/60' : 'bg-slate-950/80 border-slate-800/80'
-          }`}
-        >
-          {/* Pink Sakura Theme Toggle Button */}
-          <button
-            onClick={onToggleTheme}
-            title={isPink ? 'Switch to Cyber Neon Theme' : 'Switch to Sakura Pink Theme (Female Pilot Edition)'}
-            className={`p-1.5 rounded transition-all active:scale-90 ${
-              isPink
-                ? 'bg-pink-600/40 border border-pink-400 text-pink-200 shadow-[0_0_8px_rgba(244,114,182,0.6)]'
-                : 'text-slate-400 hover:text-pink-300 hover:bg-slate-900'
-            }`}
-          >
-            {isPink ? <Heart className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-pink-400 text-pink-300" /> : <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
-          </button>
-
-          {/* Auto-Fire Toggle */}
-          <button
-            onClick={onToggleAutoFire}
-            title={hud.autoFire ? 'Auto-Fire Enabled (Click to toggle)' : 'Auto-Fire Disabled (Click to toggle)'}
-            className={`p-1.5 rounded transition-colors ${
-              hud.autoFire
-                ? isPink
-                  ? 'bg-pink-950 border border-pink-600 text-pink-300'
-                  : 'bg-cyan-950 border border-cyan-700 text-cyan-300'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-            }`}
-          >
-            <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-          </button>
-
-
-          {/* CRT Scanline Toggle */}
-          <button
-            onClick={onToggleCRT}
-            title={crtEnabled ? 'Disable CRT Scanlines' : 'Enable CRT Scanlines'}
-            className={`p-1.5 rounded transition-colors ${
-              crtEnabled
-                ? isPink
-                  ? 'bg-pink-950 border border-pink-700 text-pink-300'
-                  : 'bg-cyan-950 border border-cyan-700 text-cyan-300'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-            }`}
-          >
-            <Tv className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-          </button>
-
-          {/* Safe Bounds Toggle (Android / Mobile Optimization) */}
-          {onToggleSafeFit && (
-            <button
-              onClick={onToggleSafeFit}
-              title={
-                hud.safeFitMode !== false
-                  ? 'Android Safe Bounds Active (Padded against notches & cutouts) - Click to toggle Full Stretch'
-                  : 'Full Screen Stretch Active - Click for Android Safe Bounds'
-              }
-              className={`p-1.5 rounded transition-colors ${
-                hud.safeFitMode !== false
-                  ? isPink
-                    ? 'bg-pink-900/60 border border-pink-500 text-pink-200'
-                    : 'bg-cyan-950 border border-cyan-600 text-cyan-300'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-              }`}
-            >
-              <Smartphone className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            </button>
-          )}
-
-          {/* Fullscreen Immersive Mode Toggle (Hides Android browser bars) */}
-          {onToggleFullscreen && (
-            <button
-              onClick={onToggleFullscreen}
-              title={isFullscreen ? 'Exit Fullscreen' : 'Enter Immersive Fullscreen (Hides browser navigation)'}
-              className={`p-1.5 rounded transition-colors ${
-                isFullscreen
-                  ? isPink
-                    ? 'bg-pink-900/60 border border-pink-500 text-pink-200'
-                    : 'bg-emerald-950 border border-emerald-600 text-emerald-300'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-              }`}
-            >
-              {isFullscreen ? (
-                <Minimize className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              ) : (
-                <Maximize className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              )}
-            </button>
-          )}
-
-          {/* Sound Mute Toggle */}
-          <button
-            onClick={onToggleMute}
-            title={isMuted ? 'Unmute Sound' : 'Mute Sound'}
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-900 rounded transition-colors"
-          >
-            {isMuted ? <VolumeX className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-400" /> : <Volume2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-300" />}
-          </button>
-
-          {/* Pause Button */}
-          <button
-            onClick={onPause}
-            title="Pause Game (Esc or P)"
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-900 rounded transition-colors"
-          >
-            <Pause className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-          </button>
+        {/* Desktop Controls Legend (Hidden on touch devices so mobile VirtualControls has 100% thumb clearance) */}
+        <div className="hidden md:flex items-center gap-2 text-[9px] font-mono text-slate-500 bg-slate-950/60 border border-slate-800/60 px-3 py-1.5 rounded-lg pointer-events-none">
+          <span>[SPACE] FIRE</span>
+          <span>·</span>
+          <span>[K] NUKE</span>
+          <span>·</span>
+          <span>[X] SWITCH</span>
+          <span>·</span>
+          <span>[P] PAUSE</span>
         </div>
       </div>
     </div>

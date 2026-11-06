@@ -51,9 +51,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     onEngineReady(engine);
 
+    let lastW = initialSize.w;
+    let lastH = initialSize.h;
+
     const updateSize = () => {
       const { w, h } = measureViewport();
-      if (w > 0 && h > 0) {
+      if (w > 0 && h > 0 && (Math.abs(w - lastW) > 2 || Math.abs(h - lastH) > 2)) {
+        lastW = w;
+        lastH = h;
         engine.resize(w, h);
       }
     };
@@ -62,20 +67,23 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
-        if (width > 0 && height > 0) {
-          engine.resize(Math.floor(width), Math.floor(height));
+        const nw = Math.floor(width);
+        const nh = Math.floor(height);
+        if (nw > 0 && nh > 0 && (Math.abs(nw - lastW) > 2 || Math.abs(nh - lastH) > 2)) {
+          lastW = nw;
+          lastH = nh;
+          engine.resize(nw, nh);
         }
       }
     });
 
     resizeObserver.observe(container);
 
-    // Dynamic browser chrome & virtual viewport listeners (Brave, Chrome, Safari)
+    // Dynamic browser chrome & orientation listeners (Brave, Chrome, Safari)
     if (typeof window !== 'undefined') {
       window.addEventListener('resize', updateSize);
       window.addEventListener('orientationchange', updateSize);
       window.visualViewport?.addEventListener('resize', updateSize);
-      window.visualViewport?.addEventListener('scroll', updateSize);
       document.addEventListener('fullscreenchange', updateSize);
       document.addEventListener('webkitfullscreenchange', updateSize);
     }
@@ -86,7 +94,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         window.removeEventListener('resize', updateSize);
         window.removeEventListener('orientationchange', updateSize);
         window.visualViewport?.removeEventListener('resize', updateSize);
-        window.visualViewport?.removeEventListener('scroll', updateSize);
         document.removeEventListener('fullscreenchange', updateSize);
         document.removeEventListener('webkitfullscreenchange', updateSize);
       }
